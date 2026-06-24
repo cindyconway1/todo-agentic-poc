@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/ToDo.Api/ToDo.Api.csproj" />
     <Project Path="src/ToDo.Business/ToDo.Business.csproj" />
