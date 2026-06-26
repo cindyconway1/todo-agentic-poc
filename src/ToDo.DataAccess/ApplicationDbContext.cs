@@ -2,8 +2,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ToDo.DataAccess;
 
-// Stub: SaveChangesAsync does not yet stamp audit columns.
-// Tests will fail until StampAuditColumns is wired up (see next commit).
 public class ApplicationDbContext : DbContext
 {
     private readonly ICurrentUserAccessor _currentUser;
@@ -12,5 +10,33 @@ public class ApplicationDbContext : DbContext
         : base(options)
     {
         _currentUser = currentUser;
+    }
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        StampAuditColumns();
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void StampAuditColumns()
+    {
+        var now = DateTime.UtcNow;
+        var userId = _currentUser.CurrentUserId;
+
+        foreach (var entry in ChangeTracker.Entries<IAuditable>())
+        {
+            if (entry.State == EntityState.Added)
+            {
+                entry.Entity.CreateDt = now;
+                entry.Entity.LastUpdateDt = now;
+                entry.Entity.CreateUserId = userId;
+                entry.Entity.LastUpdateUserId = userId;
+            }
+            else if (entry.State == EntityState.Modified)
+            {
+                entry.Entity.LastUpdateDt = now;
+                entry.Entity.LastUpdateUserId = userId;
+            }
+        }
     }
 }

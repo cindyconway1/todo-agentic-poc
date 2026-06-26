@@ -1,16 +1,21 @@
 using Csla.Configuration;
+using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
+using ToDo.Api.Services;
+using ToDo.DataAccess;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-builder.Services.AddControllers();   // needed for ToDoController later
-builder.Services.AddCsla();          // registers IDataPortal<T>, ApplicationContext, etc.
-builder.Services.AddOpenApi();       // Swagger/OpenAPI (kept from template)
+builder.Services.AddControllers();
+builder.Services.AddCsla();
+builder.Services.AddOpenApi();
+
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
+builder.Services.AddScoped<ICurrentUserAccessor, CslaCurrentUserAccessor>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -18,8 +23,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
-app.MapControllers();                                   // routes for your API controllers
-app.MapGet("/health", () => Results.Ok("ok"));          // simple liveness check
+app.MapControllers();
+app.MapGet("/health", () => Results.Ok("ok"));
 
 app.Run();
+
+public partial class Program { }
