@@ -40,6 +40,7 @@ Layer-specific conventions live in `.claude/rules/` (`csla.md` for the Business 
 ## Pull requests
 
 - **Self-verify before opening a PR.** Run `dotnet build --configuration Release` and `dotnet test tests/ToDo.UnitTests --configuration Release`. If either fails, fix the cause and re-run until both are green — do not open the PR with a known-red build. Only open the PR once both pass, and state in the PR description that the build and unit tests are green. (Integration tests run in CI, which requires SQL Server.)
+- **Don't loop indefinitely; report where you were triggered.** If build or unit tests still fail after ~2–3 focused fix attempts, stop and post the error output plus your diagnosis as a comment on the **issue or PR that triggered you**. Because you self-verify *before* opening a PR, this failure usually happens with **no PR yet** — in that case, comment on the originating issue rather than opening a red PR. A capped, well-described failure is more useful than an exhausted turn budget.
 - **EF Core migrations are the highest-review-priority artifact.** Call them out explicitly in the PR description so reviewers focus on them.
 
 ## Gotchas
