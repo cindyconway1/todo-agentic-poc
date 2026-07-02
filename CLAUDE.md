@@ -39,6 +39,7 @@ Layer-specific conventions live in `.claude/rules/` (`csla.md` for the Business 
 
 ## Pull requests
 
+- **Self-verify before opening a PR.** Run `dotnet build --configuration Release` and `dotnet test tests/ToDo.UnitTests --configuration Release`. If either fails, fix the cause and re-run until both are green — do not open the PR with a known-red build. Only open the PR once both pass, and state in the PR description that the build and unit tests are green. (Integration tests run in CI, which requires SQL Server.)
 - **EF Core migrations are the highest-review-priority artifact.** Call them out explicitly in the PR description so reviewers focus on them.
 
 ## Gotchas

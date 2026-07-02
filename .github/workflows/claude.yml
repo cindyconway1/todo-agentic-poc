@@ -30,6 +30,12 @@ jobs:
         with:
           fetch-depth: 1
 
+      # So Claude can build and run unit tests as its own pre-PR self-check.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
