@@ -17,7 +17,7 @@ public sealed class CslaCurrentUserAccessor : ICurrentUserAccessor
     {
         get
         {
-            var value = _applicationContext.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var value = (_applicationContext.User as ClaimsPrincipal)?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             return value is not null && Guid.TryParse(value, out var id) ? id : null;
         }
     }
