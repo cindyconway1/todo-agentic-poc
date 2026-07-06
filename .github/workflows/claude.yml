@@ -19,7 +19,9 @@ jobs:
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
     # Guardrail: hard wall-clock cap — GitHub kills the job after this regardless of agent state.
-    timeout-minutes: 20
+    # Raised from 20 → 30: BE-02-sized tickets (entity + EF migration + services + tests) need
+    # room to build/test/migrate and still finish before the wall-clock cap.
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: read
@@ -45,9 +47,13 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
           # Guardrail: cap agent iterations so it can't loop forever on a fix it can't solve.
+          # --max-turns raised 25 → 40: a full BE ticket (code + EF migration + unit & integration
+          #   tests + self-verify) doesn't fit in 25 turns; the BE-02 run hit error_max_turns.
+          # Tool permissions (what dotnet/git commands the agent may run) now live in the
+          #   version-controlled .claude/settings.json permissions.allow/deny — one source of truth
+          #   that applies both here in CI and in local Claude Code sessions.
           claude_args: |
-            --max-turns 25
-            --allowedTools "Bash(dotnet build:*)" "Bash(dotnet test:*)" "Bash(dotnet restore:*)"
+            --max-turns 40
 
 
           # This is an optional setting that allows Claude to read CI results on PRs
