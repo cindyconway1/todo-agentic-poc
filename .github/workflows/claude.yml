@@ -21,7 +21,7 @@ jobs:
     # Guardrail: hard wall-clock cap — GitHub kills the job after this regardless of agent state.
     timeout-minutes: 20
     permissions:
-      contents: read
+      contents: write
       pull-requests: read
       issues: read
       id-token: write
