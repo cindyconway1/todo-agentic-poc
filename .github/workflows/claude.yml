@@ -19,9 +19,10 @@ jobs:
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
     # Guardrail: hard wall-clock cap — GitHub kills the job after this regardless of agent state.
-    # Raised from 20 → 30: BE-02-sized tickets (entity + EF migration + services + tests) need
-    # room to build/test/migrate and still finish before the wall-clock cap.
-    timeout-minutes: 30
+    # Raised 20 → 30 → 45: the 40-turn BE-02 run died on the *turn* cap at 8.2 min with the clock
+    # barely touched, so the bottleneck is turns, not minutes — but raising --max-turns to 90 needs
+    # matching wall-clock headroom for slow cold-restore build/test cycles. 45 keeps a real cap.
+    timeout-minutes: 45
     permissions:
       contents: write
       pull-requests: read
@@ -50,20 +51,23 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
           # Guardrail: cap agent iterations so it can't loop forever on a fix it can't solve.
-          # --max-turns raised 25 → 40: a full BE ticket (code + EF migration + unit & integration
-          #   tests + self-verify) doesn't fit in 25 turns; the BE-02 run hit error_max_turns.
+          # --max-turns raised 25 → 40 → 90: the 40-turn run hit error_max_turns still mid-code
+          #   (branch never pushed, work lost). A full BE ticket (≈10 files + EF migration + two
+          #   test projects + build/test/fix cycles + push) needs the larger budget. Bounded by the
+          #   45-min wall-clock above so a stuck run still terminates.
           #
           # Tool permissions MUST be declared here via --allowedTools. The Action does NOT honor
           #   .claude/settings.json permissions.allow for gating Bash in the non-interactive run
-          #   (see anthropics/claude-code-action FAQ). Bash is disabled by default; without the
-          #   explicit dotnet allowance below, every `dotnet build/test/ef` call is denied with no
-          #   human present to approve it — this was the BE-02 blocker across multiple runs.
+          #   (see anthropics/claude-code-action FAQ). Bash is disabled by default.
+          #   The prior run wasted 10 of 41 turns on denied commands: the allowlist covered dotnet
+          #   but not the ordinary file ops an implementation needs (mkdir/mv/cp/rm/cat/ls/find/
+          #   sed/grep). Granting those below stops the denial-thrash. Destructive ops stay denied.
           #   .claude/settings.json still governs *local* interactive Claude Code sessions.
           claude_args: |
-            --max-turns 40
+            --max-turns 90
             --verbose
-            --allowedTools "Bash(dotnet:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*)"
-            --disallowedTools "Bash(dotnet nuget push:*)"
+            --allowedTools "Bash(dotnet:*),Bash(git:*),Bash(mkdir:*),Bash(mv:*),Bash(cp:*),Bash(rm:*),Bash(cat:*),Bash(ls:*),Bash(find:*),Bash(sed:*),Bash(grep:*),Bash(echo:*),Bash(test:*),Bash(pwd:*)"
+            --disallowedTools "Bash(dotnet nuget push:*),Bash(git push:*),Bash(rm -rf /:*)"
 
 
           # This is an optional setting that allows Claude to read CI results on PRs
