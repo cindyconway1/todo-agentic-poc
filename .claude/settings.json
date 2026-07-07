@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dotnet:*)",
+      "Bash(dotnet *)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git add:*)",

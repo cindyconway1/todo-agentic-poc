@@ -57,6 +57,7 @@ jobs:
           #   that applies both here in CI and in local Claude Code sessions.
           claude_args: |
             --max-turns 40
+            --verbose
 
 
           # This is an optional setting that allows Claude to read CI results on PRs
