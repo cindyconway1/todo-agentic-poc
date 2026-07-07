@@ -40,6 +40,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Install EF Core tools
+        run: dotnet tool install -g dotnet-ef
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
