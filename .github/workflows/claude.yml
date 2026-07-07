@@ -52,12 +52,18 @@ jobs:
           # Guardrail: cap agent iterations so it can't loop forever on a fix it can't solve.
           # --max-turns raised 25 → 40: a full BE ticket (code + EF migration + unit & integration
           #   tests + self-verify) doesn't fit in 25 turns; the BE-02 run hit error_max_turns.
-          # Tool permissions (what dotnet/git commands the agent may run) now live in the
-          #   version-controlled .claude/settings.json permissions.allow/deny — one source of truth
-          #   that applies both here in CI and in local Claude Code sessions.
+          #
+          # Tool permissions MUST be declared here via --allowedTools. The Action does NOT honor
+          #   .claude/settings.json permissions.allow for gating Bash in the non-interactive run
+          #   (see anthropics/claude-code-action FAQ). Bash is disabled by default; without the
+          #   explicit dotnet allowance below, every `dotnet build/test/ef` call is denied with no
+          #   human present to approve it — this was the BE-02 blocker across multiple runs.
+          #   .claude/settings.json still governs *local* interactive Claude Code sessions.
           claude_args: |
             --max-turns 40
             --verbose
+            --allowedTools "Bash(dotnet:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*)"
+            --disallowedTools "Bash(dotnet nuget push:*)"
 
 
           # This is an optional setting that allows Claude to read CI results on PRs
