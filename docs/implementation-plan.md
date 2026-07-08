@@ -188,8 +188,8 @@ Auth (BE-02) gates everything because all endpoints require an authenticated, ow
 
 _Status as of 2026-07-08, verified against `main` (post-BE-02)._
 
-1. **Multiple named lists per entity** vs one list per entity — ⏳ **STILL OPEN.** Not modeled or coded yet; no list or scope-entity tables exist. Decide before BE-06 (changes BE-06 + the data model). See the re-confirm note in BE-06.
+1.1. **One list per entity (decided).** Each League/Team/Volunteer has exactly one implicit to-do list — users never create, name, or delete lists. Enforce a unique `(ScopeType, ScopeEntityId)` on `TodoList`; the list is auto-created (get-or-create) and 1:1 with its entity. See BE-06
 2. Password policy exact numbers — ✅ **DECIDED (implemented in BE-02).** Required; **min 8, max 128** characters; **no complexity rules** (no required upper/lower/digit/symbol). Storage: Argon2id (19 MiB memory, t=2, p=1, 16-byte salt, 32-byte hash). Email: required, ≤256, format-validated, unique (case-insensitive). Source: `UserEdit.cs`, `Argon2IdPasswordHasher.cs`.
 3. Key type — ✅ **CONFIRMED `Guid`** (`User.Id`, `UserEdit.Id`).
 4. Local-dev cookie wiring choice — ✅ **DECIDED (implemented in BE-02): Vite dev-proxy + HTTPS, production-grade cookie flags in dev too.** Auth + antiforgery cookies are `HttpOnly` + `Secure` (`SecurePolicy.Always`) + `SameSite=Strict` in **all** environments; the Vite dev server proxies `/api` to the backend so browser requests are **same-origin** — **no CORS and no dev-only `SameSite=Lax` relaxation.** FE dev must run over **HTTPS** and call the API **through the proxy** (same origin), or the cookies are silently dropped. Source: `Program.cs`.
-5. Whether to keep BE-03/04/05 (and FE-02) split or merge into single PRs — ⏳ open (your call).
+5. Whether to keep BE-03/04/05 (and FE-02) split or merge into single PRs: split.
