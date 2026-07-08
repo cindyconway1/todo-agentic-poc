@@ -9,7 +9,9 @@ using ToDo.DataAccess;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+// AddControllersWithViews (not AddControllers) so the MVC antiforgery filter service
+// (ValidateAntiforgeryTokenAuthorizationFilter) backing [ValidateAntiForgeryToken] is registered.
+builder.Services.AddControllersWithViews();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddCsla(o => o.AddAspNetCore());
 builder.Services.AddOpenApi();

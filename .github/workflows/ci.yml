@@ -18,7 +18,15 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - run: dotnet build --configuration Release
-      - run: dotnet test tests/ToDo.UnitTests --configuration Release
+      - name: Unit + smoke tests (with coverage floor)
+        run: |
+          dotnet test tests/ToDo.UnitTests --configuration Release \
+            --collect:"XPlat Code Coverage" --results-directory ./TestResults
+          # Coverage floor: a tripwire against a green-but-testless suite (e.g. only empty stubs),
+          # NOT a quality target. Current coverage is ~0.28; floor sits below with headroom.
+          rate=$(grep -o 'line-rate="[0-9.]*"' TestResults/*/coverage.cobertura.xml | head -1 | grep -o '[0-9.]*')
+          echo "Unit+smoke line coverage: $rate (floor 0.20)"
+          awk "BEGIN{exit !($rate >= 0.20)}" || { echo "::error::Unit line coverage $rate is below the 0.20 floor — are real tests present?"; exit 1; }
       - name: Integration tests
         env:
           ConnectionStrings__Default: "Server=localhost,1433;Database=ToDoDb;User Id=sa;Password=Your_strong_Pass123;TrustServerCertificate=True"
