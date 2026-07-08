@@ -13,6 +13,7 @@ public class ApplicationDbContext : DbContext
     }
 
     public DbSet<User> Users => Set<User>();
+    public DbSet<League> Leagues => Set<League>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,6 +29,19 @@ public class ApplicationDbContext : DbContext
             entity.Property(u => u.PasswordHash)
                 .IsRequired();
             entity.HasIndex(u => u.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<League>(entity =>
+        {
+            entity.HasKey(l => l.Id);
+            entity.Property(l => l.Name)
+                .IsRequired()
+                .HasMaxLength(100);
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(l => l.OwnerUserId)
+                .IsRequired();
+            entity.HasIndex(l => l.OwnerUserId);
         });
     }
 
