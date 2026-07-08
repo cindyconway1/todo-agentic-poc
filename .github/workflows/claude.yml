@@ -64,6 +64,7 @@ jobs:
           #   sed/grep). Granting those below stops the denial-thrash. Destructive ops stay denied.
           #   .claude/settings.json still governs *local* interactive Claude Code sessions.
           claude_args: |
+            --model claude-fable-5
             --max-turns 90
             --verbose
             --allowedTools "Bash(dotnet:*),Bash(git:*),Bash(mkdir:*),Bash(mv:*),Bash(cp:*),Bash(rm:*),Bash(cat:*),Bash(ls:*),Bash(find:*),Bash(sed:*),Bash(grep:*),Bash(echo:*),Bash(test:*),Bash(pwd:*)"

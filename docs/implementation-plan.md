@@ -56,7 +56,7 @@ Auth (BE-02) gates everything because all endpoints require an authenticated, ow
 ### BE-02 · Auth: accounts, Argon2id, cookie session, antiforgery
 - **Repo:** backend · **Depends on:** BE-01
 - **Goal:** a user can register, log in, log out, and read their profile; sessions ride a secure cookie; mutations are antiforgery-protected.
-- **Scope (in):** `User` entity + migration (unique, case-insensitive email index); Argon2id hashing service; `UserEdit` (email/password rules, insert hashes + enforces uniqueness → 409) and `LoginCommand` (Argon2 verify, generic failure); `AddCookie` auth with `HttpOnly`/`Secure`/`SameSite=Strict` and 401-not-redirect for the API; antiforgery (`X-XSRF-TOKEN` header) + `GET /api/auth/antiforgery`; `AuthController` (`register`, `login`, `logout`, `me`); CORS for the dev origin **or** the Vite-proxy decision documented (spec §5).
+- **Scope (in):** `User` entity + migration (unique, case-insensitive email index); Argon2id hashing service; `UserEdit` (email/password rules, insert hashes + enforces uniqueness → 409) and `LoginCommand` (Argon2 verify, generic failure); `AddCookie` auth with `HttpOnly`/`Secure`/`SameSite=Strict` and 401-not-redirect for the API; antiforgery (`X-XSRF-TOKEN` header) + `GET /api/auth/antiforgery`; `AuthController` (`register`, `login`, `logout`, `me`); **dev cookie wiring = Vite proxy (same-origin), no CORS, no dev-only `SameSite=Lax`** (spec §5).
 - **Contract impact:** **+** auth endpoints, `UserDto`, request DTOs.
 - **Migration:** Users table — call out in PR.
 - **Tests:** unit — email format, password policy, hash/verify round-trip, generic login outcome; integration — register success, duplicate → 409, login sets cookie with correct flags, `me` requires auth (401), antiforgery rejects missing token.
@@ -68,7 +68,7 @@ Auth (BE-02) gates everything because all endpoints require an authenticated, ow
 ### FE-01 · Frontend foundation + auth UI
 - **Repo:** frontend · **Depends on:** ORCH-A
 - **Goal:** users can register/log in/log out; the app knows who's logged in and guards routes.
-- **Scope (in):** `auth` Pinia store (loads `me` on startup); Login + Register views with inline validation; logout; Vue Router guard (unauth → `/login`, post-login landing = Dashboard placeholder); `credentials: 'include'` on the client; antiforgery composable (read `XSRF-TOKEN` cookie → `X-XSRF-TOKEN` header); 401 → redirect to login; reconcile dev cookie wiring (proxy/HTTPS) per spec §5.
+- **Scope (in):** `auth` Pinia store (loads `me` on startup); Login + Register views with inline validation; logout; Vue Router guard (unauth → `/login`, post-login landing = Dashboard placeholder); `credentials: 'include'` on the client; antiforgery composable (read `XSRF-TOKEN` cookie → `X-XSRF-TOKEN` header); 401 → redirect to login; dev cookie wiring per the settled decision — **Vite proxy, same-origin, HTTPS, no dev-only `SameSite=Lax`** (spec §5).
 - **Contract impact:** consumes only.
 - **Tests:** Vitest (mocked) — store login/logout/me, guard redirects, antiforgery header set on mutations, register/login form validation, generic error shown on bad login.
 - **AC:** 1–9 (UI side), 12.
@@ -186,8 +186,10 @@ Auth (BE-02) gates everything because all endpoints require an authenticated, ow
 
 ## Before you start ticketing — confirm these (spec §13)
 
-1. **Multiple named lists per entity** vs one list per entity (changes BE-06 + the data model).
-2. Password policy exact numbers.
-3. Key type (`Guid` assumed).
-4. Local-dev cookie wiring choice (Vite proxy / HTTPS dev server / dev-only `SameSite=Lax`) — settle in BE-02/FE-01.
-5. Whether to keep BE-03/04/05 (and FE-02) split or merge into single PRs.
+_Status as of 2026-07-08, verified against `main` (post-BE-02)._
+
+1. **Multiple named lists per entity** vs one list per entity — ⏳ **STILL OPEN.** Not modeled or coded yet; no list or scope-entity tables exist. Decide before BE-06 (changes BE-06 + the data model). See the re-confirm note in BE-06.
+2. Password policy exact numbers — ✅ **DECIDED (implemented in BE-02).** Required; **min 8, max 128** characters; **no complexity rules** (no required upper/lower/digit/symbol). Storage: Argon2id (19 MiB memory, t=2, p=1, 16-byte salt, 32-byte hash). Email: required, ≤256, format-validated, unique (case-insensitive). Source: `UserEdit.cs`, `Argon2IdPasswordHasher.cs`.
+3. Key type — ✅ **CONFIRMED `Guid`** (`User.Id`, `UserEdit.Id`).
+4. Local-dev cookie wiring choice — ✅ **DECIDED (implemented in BE-02): Vite dev-proxy + HTTPS, production-grade cookie flags in dev too.** Auth + antiforgery cookies are `HttpOnly` + `Secure` (`SecurePolicy.Always`) + `SameSite=Strict` in **all** environments; the Vite dev server proxies `/api` to the backend so browser requests are **same-origin** — **no CORS and no dev-only `SameSite=Lax` relaxation.** FE dev must run over **HTTPS** and call the API **through the proxy** (same origin), or the cookies are silently dropped. Source: `Program.cs`.
+5. Whether to keep BE-03/04/05 (and FE-02) split or merge into single PRs — ⏳ open (your call).
