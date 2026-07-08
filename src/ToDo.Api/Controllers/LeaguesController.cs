@@ -42,7 +42,7 @@ public class LeaguesController : ControllerBase
     public async Task<IActionResult> Create([FromBody] CreateLeagueRequest request)
     {
         var league = await _leagueEditPortal.CreateAsync();
-        league.Name = request.Name;
+        league.Name = request.Name ?? "";
 
         if (!league.IsValid)
         {
@@ -91,7 +91,7 @@ public class LeaguesController : ControllerBase
             return NotFound(new MessageDto { Message = "League not found." });
         }
 
-        league.Name = request.Name;
+        league.Name = request.Name ?? "";
 
         if (!league.IsValid)
         {

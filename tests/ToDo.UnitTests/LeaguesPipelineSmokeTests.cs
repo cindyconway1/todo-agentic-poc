@@ -2,8 +2,10 @@ using System.Net;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -34,7 +36,7 @@ public class LeaguesPipelineSmokeTests : IClassFixture<WebApplicationFactory<Pro
 
     // Authenticates every request through a test scheme so filters *behind* auth (antiforgery)
     // are exercised without a database-backed login.
-    private HttpClient CreateAuthenticatedClient() => _factory
+    private WebApplicationFactory<Program> AuthenticatedFactory() => _factory
         .WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddAuthentication(options =>
@@ -42,8 +44,9 @@ public class LeaguesPipelineSmokeTests : IClassFixture<WebApplicationFactory<Pro
                 options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
                 options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
             }).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
-        }))
-        .CreateClient(ClientOptions);
+        }));
+
+    private HttpClient CreateAuthenticatedClient() => AuthenticatedFactory().CreateClient(ClientOptions);
 
     private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
 
@@ -97,9 +100,45 @@ public class LeaguesPipelineSmokeTests : IClassFixture<WebApplicationFactory<Pro
         Assert.NotEqual(HttpStatusCode.InternalServerError, response.StatusCode);
     }
 
+    // Regression anchor: with a non-nullable Name on CreateLeagueRequest, [ApiController]
+    // implicit-required validation returned 400 before LeagueEdit's Required rule ran, so the
+    // contractual 422 path was never reached. DB-free because LeagueEdit's [Create] never touches
+    // SQL — the request fails validation and returns before any save.
+    [Fact]
+    public async Task CreateLeague_WithNullName_Returns422FromBusinessRule_Not400FromAutoValidation()
+    {
+        var cookies = new CookieContainerHandler();
+        var client = AuthenticatedFactory().CreateDefaultClient(new Uri("https://localhost"), cookies);
+
+        // Prime a real antiforgery token (double-submit: cookie + X-XSRF-TOKEN header) so the
+        // request gets past the antiforgery filter and reaches model binding + the business rule.
+        var prime = await client.GetAsync("/api/auth/antiforgery");
+        Assert.Equal(HttpStatusCode.NoContent, prime.StatusCode);
+        var token = cookies.Container.GetCookies(new Uri("https://localhost"))
+            .Cast<Cookie>()
+            .Single(c => c.Name == "XSRF-TOKEN")
+            .Value;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/leagues")
+        {
+            Content = JsonBody("{\"name\":null}"),
+        };
+        request.Headers.Add("X-XSRF-TOKEN", token);
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.NotEmpty(doc.RootElement.GetProperty("errors").EnumerateArray());
+    }
+
     private sealed class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
     {
         public const string SchemeName = "Test";
+
+        // Stable across requests: antiforgery tokens are identity-bound, so a per-request random
+        // user id would invalidate a token issued on an earlier request by the same client.
+        private static readonly Guid TestUserId = Guid.Parse("6f1a3c5e-0000-4000-8000-000000000001");
 
         public TestAuthHandler(
             IOptionsMonitor<AuthenticationSchemeOptions> options,
@@ -113,7 +152,7 @@ public class LeaguesPipelineSmokeTests : IClassFixture<WebApplicationFactory<Pro
         {
             var claims = new[]
             {
-                new Claim(AuthClaimTypes.UserId, Guid.NewGuid().ToString()),
+                new Claim(AuthClaimTypes.UserId, TestUserId.ToString()),
                 new Claim(AuthClaimTypes.Email, "smoke@example.com"),
             };
             var identity = new ClaimsIdentity(claims, Scheme.Name);
