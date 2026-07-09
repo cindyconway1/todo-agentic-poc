@@ -14,6 +14,7 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<League> Leagues => Set<League>();
+    public DbSet<Team> Teams => Set<Team>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -42,6 +43,29 @@ public class ApplicationDbContext : DbContext
                 .HasForeignKey(l => l.OwnerUserId)
                 .IsRequired();
             entity.HasIndex(l => l.OwnerUserId);
+        });
+
+        modelBuilder.Entity<Team>(entity =>
+        {
+            entity.HasKey(t => t.Id);
+            entity.Property(t => t.Name)
+                .IsRequired()
+                .HasMaxLength(100);
+            // Restrict (not cascade): Users→Teams plus Users→Leagues→Teams(SET NULL) would be
+            // multiple cascade paths, which SQL Server rejects at CREATE TABLE time.
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(t => t.OwnerUserId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+            entity.HasIndex(t => t.OwnerUserId);
+            // ON DELETE SET NULL: deleting a league clears the tag on any team tagged with it (AC 18).
+            entity.HasOne<League>()
+                .WithMany()
+                .HasForeignKey(t => t.LeagueId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
+            entity.HasIndex(t => t.LeagueId);
         });
     }
 
