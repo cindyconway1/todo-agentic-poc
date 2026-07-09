@@ -18,6 +18,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Volunteer> Volunteers => Set<Volunteer>();
     public DbSet<VolunteerTeam> VolunteerTeams => Set<VolunteerTeam>();
     public DbSet<TodoList> TodoLists => Set<TodoList>();
+    public DbSet<TodoItem> TodoItems => Set<TodoItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -129,8 +130,37 @@ public class ApplicationDbContext : DbContext
             // Volunteers depending on ScopeTypeId, which a single FK cannot express; existence
             // + ownership are enforced at the data portal in TodoListEdit.
             entity.HasIndex(l => new { l.ScopeTypeId, l.ScopeEntityId }).IsUnique();
-            // TodoList→TodoItem delete cascade: the FK lives on the TodoItem table, which lands
-            // in BE-07 — BE-07 must create TodoItem.ListId with ON DELETE CASCADE.
+            // TodoList→TodoItem delete cascade: the FK lives on the TodoItem table (below).
+        });
+
+        modelBuilder.Entity<TodoItem>(entity =>
+        {
+            entity.HasKey(i => i.Id);
+            entity.Property(i => i.Title)
+                .IsRequired()
+                .HasMaxLength(200);
+            entity.Property(i => i.Description)
+                .HasMaxLength(200);
+            entity.Property(i => i.IsCompleted)
+                .HasDefaultValue(false);
+            // Deleting a list cascades its items (spec §3 delete behavior).
+            entity.HasOne<TodoList>()
+                .WithMany()
+                .HasForeignKey(i => i.ListId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            // Restrict (not cascade), same as TodoLists: Users→TodoItems plus
+            // Users→TodoLists→TodoItems(CASCADE) would be multiple cascade paths.
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(i => i.OwnerUserId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+            // Both composite indexes lead with the FK column, so they double as the FK indexes.
+            // (ListId, IsCompleted, DueDate) serves the per-list incomplete-items query;
+            // (OwnerUserId, IsCompleted, DueDate) serves the All-Items query (BE-08).
+            entity.HasIndex(i => new { i.ListId, i.IsCompleted, i.DueDate });
+            entity.HasIndex(i => new { i.OwnerUserId, i.IsCompleted, i.DueDate });
         });
     }
 
