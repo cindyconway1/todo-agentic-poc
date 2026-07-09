@@ -5,6 +5,8 @@ on:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # needed to create/update the api-schema-latest release
     services:
       sql:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -18,6 +20,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: '10.0.x' }
       - run: dotnet build --configuration Release
+      - name: Verify committed OpenAPI schema is up to date
+        # The build regenerates ToDo.Api.json from the C# API surface. If it differs
+        # from the committed copy, someone changed the API without committing the fresh
+        # schema. Fail here (on PRs too) so drift is caught before merge.
+        run: git diff --exit-code -- ToDo.Api.json
       - name: Unit + smoke tests (with coverage floor)
         run: |
           dotnet test tests/ToDo.UnitTests --configuration Release \
@@ -31,3 +38,14 @@ jobs:
         env:
           ConnectionStrings__Default: "Server=localhost,1433;Database=ToDoDb;User Id=sa;Password=Your_strong_Pass123;TrustServerCertificate=True"
         run: dotnet test tests/ToDo.IntegrationTests --configuration Release
+      - name: Publish OpenAPI schema as rolling release asset
+        # Only on push to main, and only after build + all tests above have passed.
+        # Re-points the api-schema-latest tag to this commit and replaces the asset.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: api-schema-latest
+          name: API Schema (latest)
+          body: OpenAPI schema for the ToDo API, auto-published from main.
+          files: ToDo.Api.json
+          make_latest: false
