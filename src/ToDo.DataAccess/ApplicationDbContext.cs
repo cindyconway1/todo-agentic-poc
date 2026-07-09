@@ -15,6 +15,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<League> Leagues => Set<League>();
     public DbSet<Team> Teams => Set<Team>();
+    public DbSet<Volunteer> Volunteers => Set<Volunteer>();
+    public DbSet<VolunteerTeam> VolunteerTeams => Set<VolunteerTeam>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -66,6 +68,47 @@ public class ApplicationDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull)
                 .IsRequired(false);
             entity.HasIndex(t => t.LeagueId);
+        });
+
+        modelBuilder.Entity<Volunteer>(entity =>
+        {
+            entity.HasKey(v => v.Id);
+            entity.Property(v => v.Name)
+                .IsRequired()
+                .HasMaxLength(100);
+            // Restrict (not cascade), same as Teams: Users→Volunteers plus
+            // Users→Leagues→Volunteers(SET NULL) would be multiple cascade paths.
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(v => v.OwnerUserId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+            entity.HasIndex(v => v.OwnerUserId);
+            // ON DELETE SET NULL: deleting a league clears the tag on any volunteer tagged with it.
+            entity.HasOne<League>()
+                .WithMany()
+                .HasForeignKey(v => v.LeagueId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
+            entity.HasIndex(v => v.LeagueId);
+        });
+
+        modelBuilder.Entity<VolunteerTeam>(entity =>
+        {
+            entity.HasKey(vt => new { vt.VolunteerId, vt.TeamId });
+            // Deleting a volunteer removes its tag rows.
+            entity.HasOne<Volunteer>()
+                .WithMany()
+                .HasForeignKey(vt => vt.VolunteerId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            // Deleting a team removes any volunteer-tag rows referencing it (the volunteer survives).
+            entity.HasOne<Team>()
+                .WithMany()
+                .HasForeignKey(vt => vt.TeamId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired();
+            entity.HasIndex(vt => vt.TeamId);
         });
     }
 
