@@ -26,6 +26,27 @@ Register every property with `RegisterProperty` (use the **lambda overload** for
 
 Keep the conventional **region order** within a business object (property declarations, then business rules, then data access).
 
+## Managed collections — use `MobileList<T>`, never `List<T>`
+
+Back a collection-valued managed property with `Csla.Core.MobileList<T>`, **not** `List<T>` or an array. The local data portal clones the object graph with `MobileFormatter` during save, and it only carries managed fields that are primitives or implement `IMobileObject`. `MobileList<T>` survives the clone; a plain `List<T>`/`T[]`/`HashSet<T>`/`Dictionary<K,V>`/POCO is **silently dropped** — the `[Insert]`/`[Update]` method runs against a null/empty collection, no exception is thrown, and nothing persists. Primitives, `string`, `Guid`, `DateTime`, `decimal` (and nullables), and CSLA business objects/lists are also safe.
+
+The shape (see `src/ToDo.Business/VolunteerEdit.cs`):
+
+```csharp
+public static readonly PropertyInfo<MobileList<Guid>> TeamIdsProperty =
+    RegisterProperty<MobileList<Guid>>(nameof(TeamIds));
+public IReadOnlyList<Guid> TeamIds
+{
+    get => GetProperty(TeamIdsProperty) ?? [];
+    set => SetProperty(TeamIdsProperty, new MobileList<Guid>(value.Distinct().ToList()));
+}
+```
+
+- Expose it publicly as `IReadOnlyList<T>` so callers can't mutate the backing list in place and bypass `SetProperty` (which marks dirty and runs rules); the setter normalizes and rewraps in a fresh `MobileList<T>`, the getter falls back to empty.
+- In `[Create]`/`[Fetch]`, populate with `LoadProperty(TeamIdsProperty, new MobileList<T>(...))` so the field loads without triggering rules.
+- A `MobileList<T>` of IDs reconciled in the data portal (add missing rows, remove absent ones — see `VolunteerEdit.UpdateAsync`) is enough for pure join rows with no fields of their own; reach for a full child collection (`BusinessListBase<T, C>`) only when the child rows carry their own editable fields, rules, or per-item dirty tracking.
+- **Test it through the real local data portal:** add a unit test that `SaveAsync`s and asserts the collection's persisted effects. The drop happens only in the data-portal clone, so an in-memory rules test won't catch it (see `tests/ToDo.UnitTests/VolunteerEditTagOwnershipTests.cs`).
+
 ## Data access (data portal)
 
 Decorate operations with the data-portal attributes — `[Create]`, `[Fetch]`, `[Insert]`, `[Update]`, `[DeleteSelf]`, `[Delete]` — and make them `async` where they hit the database. Put the EF Core access **inside** these operations, with dependencies (repositories, `DbContext`) supplied via `[Inject]`; do not resolve services manually or new them up.
