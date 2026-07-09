@@ -64,7 +64,7 @@ This is a single-user-per-account PoC. There is **no collaboration in v1**, but 
 - **League** — a scope entity owned by a user.
 - **Team** — a scope entity owned by a user; can be **tagged with one league**.
 - **Volunteer** — a scope entity owned by a user ("a person"); can be **tagged with one league and/or one or more teams**.
-- **List** — a to-do list scoped to exactly one entity (a League, a Team, or a Volunteer).
+- **List** — the single implicit to-do list of exactly one entity (a League, a Team, or a Volunteer). Users never create, name, or delete lists directly; the list is get-or-create on first access, 1:1 with its entity.
 - **Item** — a checklist item belonging to a List.
 
 > "Scope entity" = one of {League, Team, Volunteer}. The dashboard groups lists into three buckets by the entity type they belong to. **Tags are descriptive metadata only** in v1 — they don't change scoping, grouping, or access. They may later drive filtering/cross-cutting views.
@@ -73,7 +73,7 @@ This is a single-user-per-account PoC. There is **no collaboration in v1**, but 
 - A **User** owns many Leagues, Teams, Volunteers, Lists, and Items.
 - A **Team** may be tagged with **zero or one League** (owned by the same user).
 - A **Volunteer** may be tagged with **zero or one League** and with **zero or more Teams** (all owned by the same user).
-- A **List** belongs to exactly one scope entity. (See §11 for the one-vs-many decision.)
+- A **List** belongs to exactly one scope entity, and each scope entity has exactly **one** implicit list (decided — see §11), enforced by a unique `(ScopeType, ScopeEntityId)` index.
 - An **Item** belongs to exactly one List.
 
 ### Field definitions
@@ -125,13 +125,14 @@ This is a single-user-per-account PoC. There is **no collaboration in v1**, but 
 | Field | Type | Notes |
 |---|---|---|
 | Id | GUID/int (PK) | |
-| OwnerUserId | FK → User | Required. Denormalized for fast scoping/filtering. |
-| ScopeType | enum {League, Team, Volunteer} | Required. Identifies which bucket the list belongs to. |
-| ScopeEntityId | FK → (League/Team/Volunteer) | Required. Points at the specific entity. The (ScopeType, ScopeEntityId) pair must reference an entity owned by the same user. |
-| Name | string | Required, 1–100 chars. |
+| OwnerUserId | FK → User | Required. Denormalized for fast scoping/filtering. Derived from the authenticated context, never from client input. |
+| ScopeType | TypeID reference type {League, Team, Volunteer} | Required. Identifies which bucket the list belongs to. Persisted as the TypeID's integer id. |
+| ScopeEntityId | GUID → (League/Team/Volunteer) | Required. Points at the specific entity. **Deliberately no DB foreign key** — it references one of three tables depending on ScopeType, so existence + ownership are enforced at the data portal. Unique together with ScopeType: one list per entity. |
 | CreatedAt | datetime (UTC) | |
 
-> **Implementation note:** Two acceptable patterns for the polymorphic scope reference — (a) `ScopeType` + `ScopeEntityId` as above, with referential integrity validated in a CSLA rule; or (b) three nullable FKs (`LeagueId`, `TeamId`, `VolunteerId`) with a check constraint that exactly one is non-null. Pattern (a) is preferred for cleaner querying.
+> Lists have **no Name**: with one implicit list per entity, the list inherits its entity's name in the UI.
+
+> **Implementation note (as built, BE-06):** pattern (a) — `ScopeType` + `ScopeEntityId` with referential integrity validated at the CSLA data portal (`TodoListEdit`); `ScopeType` is a TypeID reference type, not an enum, per CLAUDE.md. A unique `(ScopeType, ScopeEntityId)` index enforces the 1:1 list-per-entity invariant and makes the API's get-or-create idempotent under concurrency. (The rejected alternative was (b): three nullable FKs with a check constraint that exactly one is non-null.)
 
 **Item**
 | Field | Type | Notes |
@@ -167,14 +168,14 @@ This is a single-user-per-account PoC. There is **no collaboration in v1**, but 
   - A volunteer can be tagged with **one league** (optional) and/or **one or more teams** (optional).
   - All tagged references must point at entities owned by the same user.
   - Tags are descriptive; removing a tag (or untagging) has no cascading effect on lists or items.
-- Deleting an entity that still has lists: **blocked** with a clear error in v1 (safer for a PoC). See §11. Deleting an entity that is only referenced as a *tag* (e.g., deleting a league that a team is tagged with) simply clears that tag.
+- Deleting an entity vs its implicit list: **open** — the original "block delete while lists exist" rule predates the one-implicit-list-per-entity decision and would make an entity undeletable once its list is auto-created; see §11 item 1. Deleting an entity that is only referenced as a *tag* (e.g., deleting a league that a team is tagged with) simply clears that tag.
 
 ### 5.3 Lists
-- An authenticated user can **CRUD** their own lists.
-- Each list is scoped to exactly one entity (a specific league, team, or volunteer) owned by the same user.
-- A list is rendered as a **standard checkbox list** (Google Keep / Google Notes style) with a per-item **due-date calendar control**.
-- Only the authenticated owner can CRUD a list (see §6).
-- Deleting a list cascade-deletes its items.
+- Each scope entity (league, team, volunteer) has exactly **one implicit to-do list**. Users never create, name, or delete lists directly.
+- An authenticated user **retrieves** the list for an entity they own; the list is **auto-created on first access** (get-or-create). Repeated requests return the same list — the unique `(ScopeType, ScopeEntityId)` index makes this idempotent.
+- A list is rendered as a **standard checkbox list** (Google Keep / Google Notes style) with a per-item **due-date calendar control**, titled by its entity's name.
+- Only the authenticated owner of the scope entity can access its list (see §6); an unowned or nonexistent entity is a 404.
+- When a list row is deleted, its items are cascade-deleted (the `TodoItem.ListId` FK is `ON DELETE CASCADE`, created with the TodoItem table in BE-07).
 
 ### 5.4 Items
 - An authenticated user can **CRUD** items within their own lists.
@@ -238,13 +239,9 @@ REST over JSON. All routes are owner-scoped server-side. State-changing routes r
 - `PUT    /api/leagues/{id}` → includes setting/clearing tags (e.g., a team's `LeagueId`, a volunteer's `LeagueId` and team list)
 - `DELETE /api/leagues/{id}`
 
-**Lists**
-- `GET    /api/lists` → flat list (optionally `?scopeType=`)
+**Lists** (one implicit list per entity — no list CRUD)
+- `GET    /api/lists/{scopeType}/{scopeEntityId}` → get-or-create the entity's single list (`scopeType` ∈ `league|team|volunteer`); 404 for an unowned/nonexistent entity or unknown scope type
 - `GET    /api/dashboard` → lists grouped by Leagues / Teams / People, items pre-sorted, completed excluded
-- `POST   /api/lists`
-- `GET    /api/lists/{id}`
-- `PUT    /api/lists/{id}`
-- `DELETE /api/lists/{id}`
 
 **Items**
 - `GET    /api/lists/{listId}/items` → non-completed, sorted by due date
@@ -271,8 +268,7 @@ REST over JSON. All routes are owner-scoped server-side. State-changing routes r
 - A volunteer's `LeagueId` and any tagged team, if set, must reference entities owned by the current user.
 
 ### List
-- `Name` required, 1–100 chars.
-- `ScopeType` + `ScopeEntityId` required and must reference an entity owned by the current user.
+- `ScopeType` + `ScopeEntityId` required and must reference an entity owned by the current user. (Lists have no user-supplied fields — no `Name` — since each entity's single list is implicit.)
 
 ### Item
 - `Title` required; non-empty after trimming; ≤200 chars.
@@ -297,7 +293,7 @@ REST over JSON. All routes are owner-scoped server-side. State-changing routes r
 | **Deleting a league/team used only as a tag** | Allowed; the tag is cleared from any team/volunteer that referenced it. |
 | **Empty states** | Friendly empty state for: no entities yet, entity with no lists, list with no (incomplete) items, "All Items" with nothing due. |
 | **Accessing another user's data** | Treated as not found (404); never returns another user's data. |
-| **Deleting an entity that still has lists** | Blocked with a clear message in v1 (see §5.2). |
+| **Deleting an entity that still has lists** | Open — block vs cascade the implicit list is undecided (see §5.2 and §11 item 1). |
 
 ---
 
@@ -330,8 +326,8 @@ Written as Given/When/Then. Each is intended to be directly testable (Vitest on 
 18. **Delete tagged-only entity clears tag** — Given a league tagged on a team but with no lists, when I delete the league, then it is deleted and the team's league tag is cleared.
 
 ### Lists
-19. **CRUD lists** — Given I am authenticated, when I create/read/update/delete a list scoped to one of my entities, then the change persists.
-20. **Scope integrity** — Given I try to create a list scoped to an entity I don't own, then the request is rejected (404).
+19. **Implicit list get-or-create** — Given I am authenticated, when I request the list for one of my entities, then its single implicit list is returned (auto-created on first access), and a repeated request returns the **same** list, never a duplicate.
+20. **Scope integrity** — Given I try to access the list of an entity I don't own (or that doesn't exist), then the request is rejected (404) and no list is created.
 
 ### Items
 21. **Create item requires title** — Given a new item with no title, when I save, then it is rejected; given a valid title, it saves.
@@ -354,15 +350,14 @@ Written as Given/When/Then. Each is intended to be directly testable (Vitest on 
 
 ## 11. Open Questions / Assumptions to Confirm
 
-1. **One list per entity, or many?** This spec assumes an entity can have **multiple named lists**. If you want exactly one list per entity, lists lose their own `Name` (inherit the entity name) and the model simplifies. → *Confirm.*
-2. **List `Name`** — included because of the assumption above. Remove if one-list-per-entity. → *Confirm.*
-3. **Entity delete behavior** — assumed **block delete** when lists exist. Alternative is cascade delete. → *Confirm.*
-4. **Title max length** — set to 200 (description is 200 per your spec; title wasn't specified). → *Confirm.*
-5. **Password policy specifics** — proposed min 8 + character classes; you said "n characters, special characters, etc." Pin the exact numbers. → *Confirm.*
-6. **Tag cardinality** — Team→League and Volunteer→League are modeled as **single** league each (per "tag with a league"). Volunteer→Teams is many. Confirm you don't need a team/volunteer in multiple leagues. → *Confirm.*
-7. **Cross-owner response code** — chosen **404** over 403 for non-leaking. → *Confirm.*
+1. **Entity delete behavior** — originally assumed **block delete** when lists exist. Now that every entity's list is implicit and auto-created (see Resolved below), blocking would make an entity effectively undeletable once its list is first accessed — the natural alternative is to cascade-delete the implicit list (and its items) with the entity. Not yet implemented either way. → *Confirm.*
+2. **Title max length** — set to 200 (description is 200 per your spec; title wasn't specified). → *Confirm.*
+3. **Password policy specifics** — proposed min 8 + character classes; you said "n characters, special characters, etc." Pin the exact numbers. → *Confirm.*
+4. **Tag cardinality** — Team→League and Volunteer→League are modeled as **single** league each (per "tag with a league"). Volunteer→Teams is many. Confirm you don't need a team/volunteer in multiple leagues. → *Confirm.*
+5. **Cross-owner response code** — chosen **404** over 403 for non-leaking. → *Confirm.*
 
 ### Resolved (previously open)
+- **One list per entity (decided, implemented in BE-06):** each League/Team/Volunteer has exactly **one implicit** to-do list — users never create, name, or delete lists directly. The list is get-or-create on first access, 1:1 with its entity, enforced by a unique `(ScopeType, ScopeEntityId)` index. Lists have **no `Name`** (the UI titles them by their entity).
 - **League→Team hierarchy:** modeled as descriptive **tags** (team↔league, volunteer↔league, volunteer↔teams), not an enforced hierarchy.
 - **Auth pattern:** **Native Cookie pattern** (`AddCookie`) only.
 - **Completed items:** completion is **one-way**; no viewing or restoring in v1.

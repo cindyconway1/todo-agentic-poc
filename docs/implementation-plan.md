@@ -114,13 +114,15 @@ Auth (BE-02) gates everything because all endpoints require an authenticated, ow
 
 ## Phase 3 — Lists, items, and views
 
-### BE-06 · Lists CRUD (scoped to an entity)
+### BE-06 · Lists (one implicit list per entity, get-or-create) — ✅ done
 - **Repo:** backend · **Depends on:** BE-05
-- **Scope (in):** `TodoListEdit` with `ScopeType` + `ScopeEntityId` and the **polymorphic ownership rule** (no DB FK — document this); `ListsController`; delete cascades items; migration (TodoList + indexes). Re-confirm the "multiple lists per entity vs one" assumption (spec §13.1) before building.
-- **Contract impact:** **+** list endpoints + DTOs.
-- **Migration:** TodoList — call out in PR; note the deliberate absence of an FK on `ScopeEntityId`.
-- **Tests:** unit — scope-ownership rule; integration — create scoped to owned entity, scope-not-owned → 404, cross-user isolation → 404.
+- **Decision (confirmed):** each League/Team/Volunteer has exactly **one implicit** to-do list — users never create, name, or delete lists directly. The list is get-or-create on first access, 1:1 with its entity, enforced by a unique `(ScopeType, ScopeEntityId)` index. Lists have no `Name`.
+- **Scope (in):** `TodoListEdit` with `ScopeType` (a **TypeID reference type**, not an enum) + `ScopeEntityId` and the **polymorphic ownership rule** at the data portal (no DB FK on `ScopeEntityId` — documented in code and in the migration); `ListsController` with the single get-or-create endpoint `GET /api/lists/{scopeType}/{scopeEntityId}`; migration (TodoList + unique scope index + owner index). The TodoList→TodoItem delete cascade is completed in BE-07 (the FK lives on the TodoItem side).
+- **Contract impact:** **+** the get-or-create list endpoint + `TodoListDto`.
+- **Migration:** TodoList — call out in PR; note the deliberate absence of an FK on `ScopeEntityId` and the unique scope index.
+- **Tests:** unit — scope-ownership rule, ScopeType TypeID behavior; integration — get-or-create for an owned entity, second call returns the same list (idempotency via the unique index), scope-not-owned → 404, cross-user isolation → 404.
 - **AC:** 11, 19, 20.
+- **Follow-up surfaced:** entity-delete vs the implicit list (block vs cascade) is still open — see `feature.md` §11 item 1; the old delete-if-has-lists (409) plan predates the implicit-list decision.
 
 ### BE-07 · Items CRUD + one-way completion + sorting
 - **Repo:** backend · **Depends on:** BE-06
@@ -188,16 +190,9 @@ Auth (BE-02) gates everything because all endpoints require an authenticated, ow
 
 _Status as of 2026-07-08, verified against `main` (post-BE-02)._
 
-<<<<<<< Updated upstream
-1.1. **One list per entity (decided).** Each League/Team/Volunteer has exactly one implicit to-do list — users never create, name, or delete lists. Enforce a unique `(ScopeType, ScopeEntityId)` on `TodoList`; the list is auto-created (get-or-create) and 1:1 with its entity. See BE-06
+1. One list per entity vs many — ✅ **DECIDED (implemented in BE-06).** Each League/Team/Volunteer has exactly one implicit to-do list — users never create, name, or delete lists directly. A unique `(ScopeType, ScopeEntityId)` index on `TodoList` enforces it; the list is auto-created (get-or-create) and 1:1 with its entity. See BE-06.
 2. Password policy exact numbers — ✅ **DECIDED (implemented in BE-02).** Required; **min 8, max 128** characters; **no complexity rules** (no required upper/lower/digit/symbol). Storage: Argon2id (19 MiB memory, t=2, p=1, 16-byte salt, 32-byte hash). Email: required, ≤256, format-validated, unique (case-insensitive). Source: `UserEdit.cs`, `Argon2IdPasswordHasher.cs`.
 3. Key type — ✅ **CONFIRMED `Guid`** (`User.Id`, `UserEdit.Id`).
 4. Local-dev cookie wiring choice — ✅ **DECIDED (implemented in BE-02): Vite dev-proxy + HTTPS, production-grade cookie flags in dev too.** Auth + antiforgery cookies are `HttpOnly` + `Secure` (`SecurePolicy.Always`) + `SameSite=Strict` in **all** environments; the Vite dev server proxies `/api` to the backend so browser requests are **same-origin** — **no CORS and no dev-only `SameSite=Lax` relaxation.** FE dev must run over **HTTPS** and call the API **through the proxy** (same origin), or the cookies are silently dropped. Source: `Program.cs`.
-5. Whether to keep BE-03/04/05 (and FE-02) split or merge into single PRs: split.
-=======
-1. **Multiple named lists per entity** vs one list per entity — ⏳ **STILL OPEN.** Not modeled or coded yet; no list or scope-entity tables exist. Decide before BE-06 (changes BE-06 + the data model). See the re-confirm note in BE-06.
-2. Password policy exact numbers — ✅ **DECIDED (implemented in BE-02).** Required; **min 8, max 128** characters; **no complexity rules** (no required upper/lower/digit/symbol). Storage: Argon2id (19 MiB memory, t=2, p=1, 16-byte salt, 32-byte hash). Email: required, ≤256, format-validated, unique (case-insensitive). Source: `UserEdit.cs`, `Argon2IdPasswordHasher.cs`.
-3. Key type — ✅ **CONFIRMED `Guid`** (`User.Id`, `UserEdit.Id`).
-4. Local-dev cookie wiring choice — ✅ **DECIDED (implemented in BE-02): Vite dev-proxy + HTTPS, production-grade cookie flags in dev too.** Auth + antiforgery cookies are `HttpOnly` + `Secure` (`SecurePolicy.Always`) + `SameSite=Strict` in **all** environments; the Vite dev server proxies `/api` to the backend so browser requests are **same-origin** — **no CORS and no dev-only `SameSite=Lax` relaxation.** FE dev must run over **HTTPS** and call the API **through the proxy** (same origin), or the cookies are silently dropped. Source: `Program.cs`.
-5. Whether to keep BE-03/04/05 (and FE-02) split or merge into single PRs — ⏳ open (your call).
->>>>>>> Stashed changes
+5. Whether to keep BE-03/04/05 (and FE-02) split or merge into single PRs — ✅ split.
+6. Entity-delete vs the implicit list — ⏳ **OPEN (surfaced by BE-06).** The original delete-if-has-lists (409) plan predates the implicit-list decision; blocking would make an entity undeletable once its list is auto-created, so the likely answer is cascading the implicit list (and items) with the entity. See `feature.md` §11 item 1.

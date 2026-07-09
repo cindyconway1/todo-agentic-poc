@@ -17,6 +17,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<Volunteer> Volunteers => Set<Volunteer>();
     public DbSet<VolunteerTeam> VolunteerTeams => Set<VolunteerTeam>();
+    public DbSet<TodoList> TodoLists => Set<TodoList>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -109,6 +110,27 @@ public class ApplicationDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired();
             entity.HasIndex(vt => vt.TeamId);
+        });
+
+        modelBuilder.Entity<TodoList>(entity =>
+        {
+            entity.HasKey(l => l.Id);
+            // Restrict (not cascade), same as Teams/Volunteers: user deletion is not a feature,
+            // and cascading here could form multiple cascade paths with future FKs.
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(l => l.OwnerUserId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+            entity.HasIndex(l => l.OwnerUserId);
+            // One implicit list per scope entity: the unique index is what makes the API's
+            // get-or-create idempotent under concurrency (the losing insert violates it).
+            // ScopeEntityId deliberately has NO foreign key — it references Leagues, Teams, or
+            // Volunteers depending on ScopeTypeId, which a single FK cannot express; existence
+            // + ownership are enforced at the data portal in TodoListEdit.
+            entity.HasIndex(l => new { l.ScopeTypeId, l.ScopeEntityId }).IsUnique();
+            // TodoList→TodoItem delete cascade: the FK lives on the TodoItem table, which lands
+            // in BE-07 — BE-07 must create TodoItem.ListId with ON DELETE CASCADE.
         });
     }
 

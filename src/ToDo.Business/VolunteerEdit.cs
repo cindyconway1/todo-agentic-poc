@@ -197,7 +197,9 @@ public class VolunteerEdit : BusinessBase<VolunteerEdit>
         [Inject] ApplicationDbContext dbContext,
         [Inject] ICurrentUserAccessor currentUser)
     {
-        // Delete-if-has-lists (409) is deferred to BE-06 — the TodoList table does not exist yet.
+        // Entity-delete vs the implicit list: lists are now get-or-create and 1:1 with their
+        // entity (BE-06), which makes the original delete-if-has-lists (409) behavior moot — the
+        // decision (block vs cascade the implicit list) is tracked in docs/feature.md §11.
         // The VolunteerTeams FK cascades, so the tag rows go with the volunteer.
         var entity = await dbContext.Volunteers
             .SingleOrDefaultAsync(v => v.Id == id && v.OwnerUserId == currentUser.CurrentUserId)

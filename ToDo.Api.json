@@ -675,6 +675,94 @@
         }
       }
     },
+    "/api/lists/{scopeTypeName}/{scopeEntityId}": {
+      "get": {
+        "tags": [
+          "Lists"
+        ],
+        "parameters": [
+          {
+            "name": "scopeTypeName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scopeEntityId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoListDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoListDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodoListDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/teams": {
       "get": {
         "tags": [
@@ -1682,6 +1770,22 @@
           }
         }
       },
+      "TodoListDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scopeType": {
+            "type": "string"
+          },
+          "scopeEntityId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "UpdateLeagueRequest": {
         "type": "object",
         "properties": {
@@ -1825,6 +1929,9 @@
     },
     {
       "name": "Leagues"
+    },
+    {
+      "name": "Lists"
     },
     {
       "name": "Teams"
