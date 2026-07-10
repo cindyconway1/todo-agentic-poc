@@ -271,6 +271,55 @@
         }
       }
     },
+    "/api/dashboard": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/lists/{listId}/items": {
       "get": {
         "tags": [
@@ -491,6 +540,64 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MessageDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/items/all": {
+      "get": {
+        "tags": [
+          "Items"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AllItemDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AllItemDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AllItemDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -2105,6 +2212,44 @@
   },
   "components": {
     "schemas": {
+      "AllItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "listId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "listName": {
+            "type": "string"
+          },
+          "scopeType": {
+            "type": "string"
+          },
+          "scopeName": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dueDate": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          }
+        }
+      },
       "CreateLeagueRequest": {
         "type": "object",
         "properties": {
@@ -2182,6 +2327,65 @@
             "items": {
               "type": "string",
               "format": "uuid"
+            }
+          }
+        }
+      },
+      "DashboardDto": {
+        "type": "object",
+        "properties": {
+          "leagues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupDto"
+            }
+          },
+          "teams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupDto"
+            }
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupDto"
+            }
+          }
+        }
+      },
+      "DashboardListDto": {
+        "type": "object",
+        "properties": {
+          "listId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "listName": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TodoItemDto"
+            }
+          }
+        }
+      },
+      "GroupDto": {
+        "type": "object",
+        "properties": {
+          "entityId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entityName": {
+            "type": "string"
+          },
+          "lists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardListDto"
             }
           }
         }
@@ -2504,6 +2708,9 @@
     },
     {
       "name": "Auth"
+    },
+    {
+      "name": "Dashboard"
     },
     {
       "name": "Items"

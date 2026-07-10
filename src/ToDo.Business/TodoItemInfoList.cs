@@ -49,4 +49,21 @@ public class TodoItemInfoList : ReadOnlyListBase<TodoItemInfoList, TodoItemInfo>
             }
         }
     }
+
+    // Child fetch for the dashboard (BE-08): DashboardInfo has already queried, ownership-
+    // filtered, completion-filtered, and sorted the rows in its fixed query set, so this just
+    // materializes them.
+    [FetchChild]
+    private void FetchChild(
+        List<TodoItem> entities,
+        [Inject] IChildDataPortal<TodoItemInfo> itemInfoPortal)
+    {
+        using (LoadListMode)
+        {
+            foreach (var entity in entities)
+            {
+                Add(itemInfoPortal.FetchChild(entity));
+            }
+        }
+    }
 }

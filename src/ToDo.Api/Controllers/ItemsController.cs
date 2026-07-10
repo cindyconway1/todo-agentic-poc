@@ -22,15 +22,18 @@ public class ItemsController : ControllerBase
     private readonly IDataPortal<TodoItemEdit> _itemEditPortal;
     private readonly IDataPortal<TodoItemInfoList> _itemInfoListPortal;
     private readonly IDataPortal<CompleteItemCommand> _completeItemPortal;
+    private readonly IDataPortal<AllItemsList> _allItemsPortal;
 
     public ItemsController(
         IDataPortal<TodoItemEdit> itemEditPortal,
         IDataPortal<TodoItemInfoList> itemInfoListPortal,
-        IDataPortal<CompleteItemCommand> completeItemPortal)
+        IDataPortal<CompleteItemCommand> completeItemPortal,
+        IDataPortal<AllItemsList> allItemsPortal)
     {
         _itemEditPortal = itemEditPortal;
         _itemInfoListPortal = itemInfoListPortal;
         _completeItemPortal = completeItemPortal;
+        _allItemsPortal = allItemsPortal;
     }
 
     [HttpGet("api/lists/{listId:guid}/items")]
@@ -49,6 +52,20 @@ public class ItemsController : ControllerBase
         {
             return NotFound(new MessageDto { Message = "List not found." });
         }
+
+        return Ok(items.Select(ToDto).ToList());
+    }
+
+    // BE-08 (AC 29): every incomplete item across all of the user's lists, flattened and
+    // pre-sorted by the data-portal query, each row labeled with its source list/entity.
+    // No 404 path — ownership is enforced in the query, so an empty account just gets [].
+    // The literal "all" segment can't collide with the guid-constrained /api/items/{id} routes.
+    [HttpGet("api/items/all")]
+    [ProducesResponseType(typeof(List<AllItemDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ListAllItems()
+    {
+        var items = await _allItemsPortal.FetchAsync();
 
         return Ok(items.Select(ToDto).ToList());
     }
@@ -179,6 +196,18 @@ public class ItemsController : ControllerBase
         DueDate = item.DueDate,
         IsCompleted = item.IsCompleted,
         CompletedAt = item.CompletedAt,
+    };
+
+    private static AllItemDto ToDto(AllItemInfo item) => new()
+    {
+        Id = item.Id,
+        ListId = item.ListId,
+        ListName = item.ListName,
+        ScopeType = item.ScopeTypeName,
+        ScopeName = item.ScopeName,
+        Title = item.Title,
+        Description = item.Description,
+        DueDate = item.DueDate,
     };
 
     private static ValidationProblemDto BuildValidationProblem(BrokenRulesCollection brokenRules)
