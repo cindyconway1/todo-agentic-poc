@@ -59,6 +59,7 @@ public class DashboardController : ControllerBase
         ListId = item.ListId,
         Title = item.Title,
         Description = item.Description,
+        Priority = item.Priority,
         DueDate = item.DueDate,
         IsCompleted = item.IsCompleted,
         CompletedAt = item.CompletedAt,

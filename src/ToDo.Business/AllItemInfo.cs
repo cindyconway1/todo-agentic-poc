@@ -62,6 +62,15 @@ public class AllItemInfo : ReadOnlyBase<AllItemInfo>
         private set => LoadProperty(DescriptionProperty, value);
     }
 
+    public static readonly PropertyInfo<string?> PriorityProperty = RegisterProperty<string?>(c => c.Priority);
+    public string? Priority
+    {
+        // CSLA coerces a null string managed field to "" — normalize back so an absent
+        // priority surfaces as null in the DTO.
+        get => string.IsNullOrEmpty(GetProperty(PriorityProperty)) ? null : GetProperty(PriorityProperty);
+        private set => LoadProperty(PriorityProperty, value);
+    }
+
     public static readonly PropertyInfo<DateOnly?> DueDateProperty = RegisterProperty<DateOnly?>(c => c.DueDate);
     public DateOnly? DueDate
     {
@@ -79,6 +88,7 @@ public class AllItemInfo : ReadOnlyBase<AllItemInfo>
         ScopeName = entityName;
         Title = entity.Title;
         Description = entity.Description;
+        Priority = entity.Priority;
         DueDate = entity.DueDate;
     }
 }

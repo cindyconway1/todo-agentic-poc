@@ -49,6 +49,15 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
         set => SetProperty(DescriptionProperty, value);
     }
 
+    public static readonly PropertyInfo<string?> PriorityProperty = RegisterProperty<string?>(c => c.Priority);
+    public string? Priority
+    {
+        // CSLA coerces a null string managed field to "" — normalize back so an absent
+        // priority round-trips (and persists) as null; null is a valid state (no priority).
+        get => string.IsNullOrEmpty(GetProperty(PriorityProperty)) ? null : GetProperty(PriorityProperty);
+        set => SetProperty(PriorityProperty, value);
+    }
+
     public static readonly PropertyInfo<DateOnly?> DueDateProperty = RegisterProperty<DateOnly?>(c => c.DueDate);
     public DateOnly? DueDate
     {
@@ -110,6 +119,7 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
             ListId = entity.ListId;
             Title = entity.Title;
             Description = entity.Description;
+            Priority = entity.Priority;
             DueDate = entity.DueDate;
             IsCompleted = entity.IsCompleted;
             CompletedAt = entity.CompletedAt;
@@ -144,6 +154,7 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
             OwnerUserId = ownerUserId,
             Title = Title,
             Description = Description,
+            Priority = Priority,
             DueDate = DueDate,
             IsCompleted = false,
             CompletedAt = null,
@@ -168,6 +179,7 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
         // between lists, and completion state only ever changes through CompleteItemCommand.
         entity.Title = Title;
         entity.Description = Description;
+        entity.Priority = Priority;
         entity.DueDate = DueDate;
         await dbContext.SaveChangesAsync();
     }

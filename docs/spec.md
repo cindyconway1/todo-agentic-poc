@@ -122,11 +122,12 @@ Every table carries the same four **audit columns**, plus `OwnerUserId` (except 
 | OwnerUserId | Guid | FK → User; required; indexed (denormalized for the All-Items query) |
 | Title | nvarchar(200) | Required, 1–200 (trimmed) |
 | Description | nvarchar(200) | Optional, ≤200 |
+| Priority | nvarchar(10) (null) | Optional; `'High'` \| `'Medium'` \| `'Low'` (case-sensitive); null is valid (no priority) and sorts last (§7); no validation rule |
 | DueDate | date (null) | Optional, date-only |
 | IsCompleted | bit | Default 0 |
 | CompletedAt | datetime2? | Null until completed |
 | *(+ audit columns)* | | see Base entity above; `CreateDt` is the sort tiebreak (§7) |
-| | | Index on (ListId, IsCompleted, DueDate); index on (OwnerUserId, IsCompleted, DueDate) for All-Items |
+| | | Index on (ListId, IsCompleted, DueDate); index on (OwnerUserId, IsCompleted, DueDate) for All-Items; both INCLUDE Priority (the §7 sort key is a CASE over Priority, so it's an include column, not a key) |
 
 ### Delete behavior (matches `feature.md` §5.2, §9)
 - **League / Team / Volunteer with lists** → delete is **blocked** in the business layer with a clear error (the controller returns **409 Conflict**). Enforced by a pre-delete check, not by DB cascade.
@@ -163,7 +164,7 @@ Every table carries the same four **audit columns**, plus `OwnerUserId` (except 
 | `VolunteerInfoList` / `VolunteerInfo` | read-only | Listing volunteers (+ league tag + team tag ids). |
 | `TodoListEdit` | `BusinessBase` | Name rule; `ScopeType` + `ScopeEntityId` required and must reference an entity of that type owned by the current user (polymorphic ownership rule — replaces the missing DB FK). Delete cascades items. |
 | `TodoListInfoList` / `TodoListInfo` | read-only | Listing lists. |
-| `TodoItemEdit` | `BusinessBase` | Title required + ≤200 (trimmed); Description ≤200; DueDate optional valid date. Insert stamps `OwnerUserId` + `ListId` (list must be owned by user). |
+| `TodoItemEdit` | `BusinessBase` | Title required + ≤200 (trimmed); Description ≤200; Priority optional, unvalidated (`'High'`/`'Medium'`/`'Low'`/null); DueDate optional valid date. Insert stamps `OwnerUserId` + `ListId` (list must be owned by user). |
 | `CompleteItemCommand` | `CommandBase` | Marks an item complete **one-way**: sets `IsCompleted=true`, `CompletedAt=now`. Rule rejects completing an item not owned by the user, and rejects any attempt to un-complete (no reverse path exists). |
 | `DashboardInfo` | `ReadOnlyBase` (with three `ReadOnlyListBase` groups) | Builds the grouped dashboard in one efficient query: Leagues / Teams / People → entity → its lists → **incomplete** items sorted by due date (nulls last). |
 | `AllItemsList` / `AllItemInfo` | `ReadOnlyListBase` / `ReadOnlyBase` | All **incomplete** items across all lists for the user, sorted by due date (nulls last), each carrying source list/entity labels. |
@@ -224,9 +225,9 @@ Also enable **CORS** for the dev origin with `AllowCredentials()` and an explici
 - `TeamDto { id, name, leagueId? }`, `CreateTeamRequest { name, leagueId? }`, `UpdateTeamRequest { name, leagueId? }`
 - `VolunteerDto { id, name, leagueId?, teamIds[] }`, `CreateVolunteerRequest { name, leagueId?, teamIds[] }`, `UpdateVolunteerRequest { name, leagueId?, teamIds[] }`
 - `TodoListDto { id, name, scopeType, scopeEntityId }`, `CreateTodoListRequest { name, scopeType, scopeEntityId }`, `UpdateTodoListRequest { name }`
-- `TodoItemDto { id, listId, title, description?, dueDate?, isCompleted, completedAt? }`, `CreateTodoItemRequest { title, description?, dueDate? }`, `UpdateTodoItemRequest { title, description?, dueDate? }`
+- `TodoItemDto { id, listId, title, description?, priority?, dueDate?, isCompleted, completedAt? }`, `CreateTodoItemRequest { title, description?, priority?, dueDate? }`, `UpdateTodoItemRequest { title, description?, priority?, dueDate? }`
 - `DashboardDto { leagues: GroupDto[], teams: GroupDto[], people: GroupDto[] }` where `GroupDto { entityId, entityName, lists: DashboardListDto[] }` and `DashboardListDto { listId, listName, items: TodoItemDto[] }` (items incomplete, sorted)
-- `AllItemDto { id, listId, listName, scopeType, scopeName, title, description?, dueDate? }`
+- `AllItemDto { id, listId, listName, scopeType, scopeName, title, description?, priority?, dueDate? }`
 
 ### Endpoints
 
@@ -263,7 +264,7 @@ Also enable **CORS** for the dev origin with `AllowCredentials()` and an explici
 
 ## 7. Sorting & completion semantics
 
-- **Sort order (everywhere items appear):** ascending by `DueDate`; rows with **null `DueDate` sort last**; tiebreak by `CreateDt` ascending. Implement in the data-portal query (`OrderBy(dueDate == null) .ThenBy(dueDate) .ThenBy(createDt)` or SQL equivalent) so the API returns pre-sorted data. (AC 26, 27.)
+- **Sort order (everywhere items appear):** by `Priority` first — `High` → `Medium` → `Low` → **null last** — then ascending by `DueDate` with **null `DueDate` sorting last** within each priority level; tiebreak by `CreateDt` ascending. Implement in the data-portal query (`OrderBy(priority == "High" ? 0 : priority == "Medium" ? 1 : priority == "Low" ? 2 : 3) .ThenBy(dueDate == null) .ThenBy(dueDate) .ThenBy(createDt)` or SQL equivalent) so the API returns pre-sorted data. (AC 26, 27; BE-09 priority-first update.)
 - **Completion is one-way:** `PATCH /complete` sets `IsCompleted=true` + `CompletedAt`. No endpoint or business path un-completes or lists completed items. All read queries (list items, dashboard, all-items) filter `IsCompleted == false`. (AC 25; `feature.md` §5.4.)
 
 ---

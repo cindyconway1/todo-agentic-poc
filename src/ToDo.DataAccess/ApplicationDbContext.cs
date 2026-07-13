@@ -141,6 +141,9 @@ public class ApplicationDbContext : DbContext
                 .HasMaxLength(200);
             entity.Property(i => i.Description)
                 .HasMaxLength(200);
+            // Nullable by design: no priority is a valid state and sorts last (§7).
+            entity.Property(i => i.Priority)
+                .HasMaxLength(10);
             entity.Property(i => i.IsCompleted)
                 .HasDefaultValue(false);
             // Deleting a list cascades its items (spec §3 delete behavior).
@@ -159,8 +162,13 @@ public class ApplicationDbContext : DbContext
             // Both composite indexes lead with the FK column, so they double as the FK indexes.
             // (ListId, IsCompleted, DueDate) serves the per-list incomplete-items query;
             // (OwnerUserId, IsCompleted, DueDate) serves the All-Items query (BE-08).
-            entity.HasIndex(i => new { i.ListId, i.IsCompleted, i.DueDate });
-            entity.HasIndex(i => new { i.OwnerUserId, i.IsCompleted, i.DueDate });
+            // Priority is an INCLUDE column, not a key: the §7 priority-first sort is a CASE
+            // expression over Priority, which SQL Server cannot seek/order on via an index key,
+            // but including the column keeps the filtered read covered for the sort computation.
+            entity.HasIndex(i => new { i.ListId, i.IsCompleted, i.DueDate })
+                .IncludeProperties(i => i.Priority);
+            entity.HasIndex(i => new { i.OwnerUserId, i.IsCompleted, i.DueDate })
+                .IncludeProperties(i => i.Priority);
         });
     }
 

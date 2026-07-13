@@ -82,6 +82,7 @@ public class ItemsController : ControllerBase
         var item = await _itemEditPortal.CreateAsync(listId);
         item.Title = request.Title ?? "";
         item.Description = request.Description;
+        item.Priority = request.Priority;
         item.DueDate = request.DueDate;
 
         if (!item.IsValid)
@@ -124,6 +125,7 @@ public class ItemsController : ControllerBase
 
         item.Title = request.Title ?? "";
         item.Description = request.Description;
+        item.Priority = request.Priority;
         item.DueDate = request.DueDate;
 
         if (!item.IsValid)
@@ -182,6 +184,7 @@ public class ItemsController : ControllerBase
         ListId = item.ListId,
         Title = item.Title,
         Description = item.Description,
+        Priority = item.Priority,
         DueDate = item.DueDate,
         IsCompleted = item.IsCompleted,
         CompletedAt = item.CompletedAt,
@@ -193,6 +196,7 @@ public class ItemsController : ControllerBase
         ListId = item.ListId,
         Title = item.Title,
         Description = item.Description,
+        Priority = item.Priority,
         DueDate = item.DueDate,
         IsCompleted = item.IsCompleted,
         CompletedAt = item.CompletedAt,
@@ -207,6 +211,7 @@ public class ItemsController : ControllerBase
         ScopeName = item.ScopeName,
         Title = item.Title,
         Description = item.Description,
+        Priority = item.Priority,
         DueDate = item.DueDate,
     };
 
