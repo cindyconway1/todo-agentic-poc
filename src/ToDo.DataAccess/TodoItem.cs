@@ -12,6 +12,9 @@ public class TodoItem : AuditableEntity
     public Guid OwnerUserId { get; set; }
     public string Title { get; set; } = "";
     public string? Description { get; set; }
+    // Optional, case-sensitive contract values "High" | "Medium" | "Low"; null is valid and
+    // sorts last (§7 priority-first sort). Deliberately unvalidated — all four states are legal.
+    public string? Priority { get; set; }
     public DateOnly? DueDate { get; set; }
     public bool IsCompleted { get; set; }
     public DateTime? CompletedAt { get; set; }

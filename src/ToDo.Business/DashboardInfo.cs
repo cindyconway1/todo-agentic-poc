@@ -46,8 +46,9 @@ public class DashboardInfo : ReadOnlyBase<DashboardInfo>
         var userId = currentUser.CurrentUserId;
 
         // Five fixed queries: the user's lists, all their incomplete items (sorted once in SQL,
-        // spec §7 order: DueDate ascending, nulls last, CreateDt tiebreak), and the three
-        // entity-name maps. The grouping itself is in-memory, so the query count never grows.
+        // spec §7 order: Priority High → Medium → Low → null, then DueDate ascending nulls last,
+        // CreateDt tiebreak), and the three entity-name maps. The grouping itself is in-memory,
+        // so the query count never grows.
         var lists = await dbContext.TodoLists
             .AsNoTracking()
             .Where(l => l.OwnerUserId == userId)
@@ -57,7 +58,8 @@ public class DashboardInfo : ReadOnlyBase<DashboardInfo>
         var itemsByList = (await dbContext.TodoItems
                 .AsNoTracking()
                 .Where(i => i.OwnerUserId == userId && !i.IsCompleted)
-                .OrderBy(i => i.DueDate == null)
+                .OrderBy(i => i.Priority == "High" ? 0 : i.Priority == "Medium" ? 1 : i.Priority == "Low" ? 2 : 3)
+                .ThenBy(i => i.DueDate == null)
                 .ThenBy(i => i.DueDate)
                 .ThenBy(i => i.CreateDt)
                 .ToListAsync())

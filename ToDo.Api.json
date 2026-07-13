@@ -2241,6 +2241,12 @@
               "string"
             ]
           },
+          "priority": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "dueDate": {
             "type": [
               "null",
@@ -2289,6 +2295,12 @@
             ]
           },
           "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "priority": {
             "type": [
               "null",
               "string"
@@ -2509,6 +2521,12 @@
               "string"
             ]
           },
+          "priority": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "dueDate": {
             "type": [
               "null",
@@ -2583,6 +2601,12 @@
             ]
           },
           "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "priority": {
             "type": [
               "null",
               "string"

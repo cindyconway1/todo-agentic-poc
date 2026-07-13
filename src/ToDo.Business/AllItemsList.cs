@@ -6,8 +6,9 @@ namespace ToDo.Business;
 
 /// <summary>
 /// The flat All-Items read model (BE-08, AC 29): every incomplete item across all of the
-/// current user's lists, sorted in the query (AC 26/27 order: DueDate ascending, nulls last,
-/// CreateDt tiebreak), each row labeled with its source list and scope entity. Assembled in
+/// current user's lists, sorted in the query (§7 order: Priority High → Medium → Low → null,
+/// then DueDate ascending nulls last, CreateDt tiebreak), each row labeled with its source
+/// list and scope entity. Assembled in
 /// four fixed queries regardless of how many lists/items exist — no per-list query in a loop.
 /// </summary>
 [Serializable]
@@ -28,7 +29,9 @@ public class AllItemsList : ReadOnlyListBase<AllItemsList, AllItemInfo>
             from item in dbContext.TodoItems.AsNoTracking()
             join list in dbContext.TodoLists.AsNoTracking() on item.ListId equals list.Id
             where item.OwnerUserId == userId && !item.IsCompleted
-            orderby item.DueDate == null, item.DueDate, item.CreateDt
+            // §7 priority-first sort: rank High=0, Medium=1, Low=2, null/other=3.
+            orderby item.Priority == "High" ? 0 : item.Priority == "Medium" ? 1 : item.Priority == "Low" ? 2 : 3,
+                item.DueDate == null, item.DueDate, item.CreateDt
             select new { Item = item, list.ScopeTypeId, list.ScopeEntityId })
             .ToListAsync();
 
