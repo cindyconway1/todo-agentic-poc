@@ -36,13 +36,20 @@ public class TodoItemInfo : ReadOnlyBase<TodoItemInfo>
         private set => LoadProperty(DescriptionProperty, value);
     }
 
-    public static readonly PropertyInfo<string?> PriorityProperty = RegisterProperty<string?>(c => c.Priority);
-    public string? Priority
+    public static readonly PropertyInfo<int?> PriorityIdProperty = RegisterProperty<int?>(c => c.PriorityId);
+    public int? PriorityId
+    {
+        get => GetProperty(PriorityIdProperty);
+        private set => LoadProperty(PriorityIdProperty, value);
+    }
+
+    public static readonly PropertyInfo<string?> PriorityNameProperty = RegisterProperty<string?>(c => c.PriorityName);
+    public string? PriorityName
     {
         // CSLA coerces a null string managed field to "" — normalize back so an absent
         // priority surfaces as null in the DTO.
-        get => string.IsNullOrEmpty(GetProperty(PriorityProperty)) ? null : GetProperty(PriorityProperty);
-        private set => LoadProperty(PriorityProperty, value);
+        get => string.IsNullOrEmpty(GetProperty(PriorityNameProperty)) ? null : GetProperty(PriorityNameProperty);
+        private set => LoadProperty(PriorityNameProperty, value);
     }
 
     public static readonly PropertyInfo<DateOnly?> DueDateProperty = RegisterProperty<DateOnly?>(c => c.DueDate);
@@ -73,7 +80,9 @@ public class TodoItemInfo : ReadOnlyBase<TodoItemInfo>
         ListId = entity.ListId;
         Title = entity.Title;
         Description = entity.Description;
-        Priority = entity.Priority;
+        PriorityId = entity.PriorityId;
+        // Callers must Include(i => i.Priority) so the lookup name is loaded with the row.
+        PriorityName = entity.Priority?.Name;
         DueDate = entity.DueDate;
         IsCompleted = entity.IsCompleted;
         CompletedAt = entity.CompletedAt;

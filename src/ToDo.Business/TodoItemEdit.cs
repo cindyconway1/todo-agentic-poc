@@ -49,13 +49,24 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
         set => SetProperty(DescriptionProperty, value);
     }
 
-    public static readonly PropertyInfo<string?> PriorityProperty = RegisterProperty<string?>(c => c.Priority);
-    public string? Priority
+    public static readonly PropertyInfo<int?> PriorityIdProperty = RegisterProperty<int?>(c => c.PriorityId);
+    public int? PriorityId
     {
-        // CSLA coerces a null string managed field to "" — normalize back so an absent
-        // priority round-trips (and persists) as null; null is a valid state (no priority).
-        get => string.IsNullOrEmpty(GetProperty(PriorityProperty)) ? null : GetProperty(PriorityProperty);
-        set => SetProperty(PriorityProperty, value);
+        // Null is a valid state (no priority). Existence in the Priorities lookup is enforced
+        // in [Insert]/[Update] (it needs the database), backed by the FK — an unknown id
+        // surfaces as InvalidPriorityException, never a silent write.
+        get => GetProperty(PriorityIdProperty);
+        set => SetProperty(PriorityIdProperty, value);
+    }
+
+    public static readonly PropertyInfo<string?> PriorityNameProperty = RegisterProperty<string?>(c => c.PriorityName);
+    public string? PriorityName
+    {
+        // Read-only projection of the lookup row's Name, loaded by [Fetch]/[Insert]/[Update]
+        // so the API can return both priorityId and priorityName without a second query.
+        // CSLA coerces a null string managed field to "" — normalize back to null.
+        get => string.IsNullOrEmpty(GetProperty(PriorityNameProperty)) ? null : GetProperty(PriorityNameProperty);
+        private set => LoadProperty(PriorityNameProperty, value);
     }
 
     public static readonly PropertyInfo<DateOnly?> DueDateProperty = RegisterProperty<DateOnly?>(c => c.DueDate);
@@ -108,6 +119,7 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
         // completed item are both a miss, never a 403 — completed items appear in no view.
         var entity = await dbContext.TodoItems
             .AsNoTracking()
+            .Include(i => i.Priority)
             .SingleOrDefaultAsync(i => i.Id == id
                 && i.OwnerUserId == currentUser.CurrentUserId
                 && !i.IsCompleted)
@@ -119,7 +131,8 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
             ListId = entity.ListId;
             Title = entity.Title;
             Description = entity.Description;
-            Priority = entity.Priority;
+            PriorityId = entity.PriorityId;
+            PriorityName = entity.Priority?.Name;
             DueDate = entity.DueDate;
             IsCompleted = entity.IsCompleted;
             CompletedAt = entity.CompletedAt;
@@ -147,6 +160,8 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
             throw new TodoItemListNotFoundException(ListId);
         }
 
+        var priority = await ResolvePriorityAsync(dbContext);
+
         var entity = new TodoItem
         {
             Id = Id,
@@ -154,7 +169,7 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
             OwnerUserId = ownerUserId,
             Title = Title,
             Description = Description,
-            Priority = Priority,
+            PriorityId = PriorityId,
             DueDate = DueDate,
             IsCompleted = false,
             CompletedAt = null,
@@ -162,6 +177,8 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
 
         dbContext.TodoItems.Add(entity);
         await dbContext.SaveChangesAsync();
+
+        PriorityName = priority?.Name;
     }
 
     [Update]
@@ -175,13 +192,32 @@ public class TodoItemEdit : BusinessBase<TodoItemEdit>
                 && !i.IsCompleted)
             ?? throw new TodoItemNotFoundException(Id);
 
+        var priority = await ResolvePriorityAsync(dbContext);
+
         // ListId, IsCompleted, and CompletedAt are deliberately not written: items don't move
         // between lists, and completion state only ever changes through CompleteItemCommand.
         entity.Title = Title;
         entity.Description = Description;
-        entity.Priority = Priority;
+        entity.PriorityId = PriorityId;
         entity.DueDate = DueDate;
         await dbContext.SaveChangesAsync();
+
+        PriorityName = priority?.Name;
+    }
+
+    // Business-layer defense-in-depth ahead of the DB FK: a non-null PriorityId must exist in
+    // the Priorities lookup (→ 422 at the API), and the resolved row supplies PriorityName.
+    private async Task<Priority?> ResolvePriorityAsync(ApplicationDbContext dbContext)
+    {
+        if (PriorityId is not int priorityId)
+        {
+            return null;
+        }
+
+        return await dbContext.Priorities
+            .AsNoTracking()
+            .SingleOrDefaultAsync(p => p.Id == priorityId)
+            ?? throw new InvalidPriorityException(priorityId);
     }
 
     [Delete]

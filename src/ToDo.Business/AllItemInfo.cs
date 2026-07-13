@@ -62,13 +62,20 @@ public class AllItemInfo : ReadOnlyBase<AllItemInfo>
         private set => LoadProperty(DescriptionProperty, value);
     }
 
-    public static readonly PropertyInfo<string?> PriorityProperty = RegisterProperty<string?>(c => c.Priority);
-    public string? Priority
+    public static readonly PropertyInfo<int?> PriorityIdProperty = RegisterProperty<int?>(c => c.PriorityId);
+    public int? PriorityId
+    {
+        get => GetProperty(PriorityIdProperty);
+        private set => LoadProperty(PriorityIdProperty, value);
+    }
+
+    public static readonly PropertyInfo<string?> PriorityNameProperty = RegisterProperty<string?>(c => c.PriorityName);
+    public string? PriorityName
     {
         // CSLA coerces a null string managed field to "" — normalize back so an absent
         // priority surfaces as null in the DTO.
-        get => string.IsNullOrEmpty(GetProperty(PriorityProperty)) ? null : GetProperty(PriorityProperty);
-        private set => LoadProperty(PriorityProperty, value);
+        get => string.IsNullOrEmpty(GetProperty(PriorityNameProperty)) ? null : GetProperty(PriorityNameProperty);
+        private set => LoadProperty(PriorityNameProperty, value);
     }
 
     public static readonly PropertyInfo<DateOnly?> DueDateProperty = RegisterProperty<DateOnly?>(c => c.DueDate);
@@ -79,7 +86,7 @@ public class AllItemInfo : ReadOnlyBase<AllItemInfo>
     }
 
     [FetchChild]
-    private void FetchChild(TodoItem entity, string scopeTypeName, string entityName)
+    private void FetchChild(TodoItem entity, string? priorityName, string scopeTypeName, string entityName)
     {
         Id = entity.Id;
         ListId = entity.ListId;
@@ -88,7 +95,9 @@ public class AllItemInfo : ReadOnlyBase<AllItemInfo>
         ScopeName = entityName;
         Title = entity.Title;
         Description = entity.Description;
-        Priority = entity.Priority;
+        PriorityId = entity.PriorityId;
+        // Passed alongside the entity because AllItemsList projects rows (no nav fix-up).
+        PriorityName = priorityName;
         DueDate = entity.DueDate;
     }
 }

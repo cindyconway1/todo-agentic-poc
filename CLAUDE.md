@@ -24,7 +24,8 @@ Layout:
 ## Conventions
 
 - Namespaces/projects follow `Upward.{Layer}.{Feature}`; use `InternalsVisibleTo` for test access and pin package versions.
-- Model DB-backed reference data with **TypeID** reference types, not `enum`s.
+- Model DB-backed reference data as a **physical lookup table with a real foreign key**: a seeded reference table (fixed ids, not identity) + FK from the referencing row, exposed via a read-only CSLA list and a `GET` endpoint — not as `enum`s and not as code-only TypeID constant sets. First implementation: `Priorities` (BE-10).
+  - Exception: `ScopeType` (League/Team/Volunteer) is pre-existing and intentionally remains a code-only TypeID set with no table/FK — do not migrate it; the lookup-table pattern applies to reference data added from here forward.
 - Authentication identity flows through the **CSLA context**; use claim-name constants and named authorization policies.
 - Audit through the **EventServices** facade, with traceable reference IDs.
 - `Nullable` and `ImplicitUsings` are enabled in all projects — assume nullable reference types and global usings; don't add redundant `using` directives.

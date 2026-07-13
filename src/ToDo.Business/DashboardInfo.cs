@@ -57,8 +57,10 @@ public class DashboardInfo : ReadOnlyBase<DashboardInfo>
 
         var itemsByList = (await dbContext.TodoItems
                 .AsNoTracking()
+                .Include(i => i.Priority)
                 .Where(i => i.OwnerUserId == userId && !i.IsCompleted)
-                .OrderBy(i => i.Priority == "High" ? 0 : i.Priority == "Medium" ? 1 : i.Priority == "Low" ? 2 : 3)
+                .OrderBy(i => i.Priority == null)
+                .ThenBy(i => i.Priority!.SortOrder)
                 .ThenBy(i => i.DueDate == null)
                 .ThenBy(i => i.DueDate)
                 .ThenBy(i => i.CreateDt)

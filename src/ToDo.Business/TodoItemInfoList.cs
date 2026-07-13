@@ -30,16 +30,18 @@ public class TodoItemInfoList : ReadOnlyListBase<TodoItemInfoList, TodoItemInfo>
             throw new TodoItemListNotFoundException(listId);
         }
 
-        // Sorted in the query so the API returns pre-sorted data (§7): Priority first via a
-        // rank expression (High=0, Medium=1, Low=2, null/other=3 — case-sensitive contract
-        // values), then DueDate ascending with null DueDates last (the bool key orders
-        // false < true), tiebreak CreateDt ascending.
+        // Sorted in the query so the API returns pre-sorted data (§7): Priority first via the
+        // joined Priorities.SortOrder (the bool key orders items with no priority last), then
+        // DueDate ascending with null DueDates last, tiebreak CreateDt ascending. The Include
+        // loads the lookup row so TodoItemInfo can surface PriorityName.
         var entities = await dbContext.TodoItems
             .AsNoTracking()
+            .Include(i => i.Priority)
             .Where(i => i.ListId == listId
                 && i.OwnerUserId == currentUser.CurrentUserId
                 && !i.IsCompleted)
-            .OrderBy(i => i.Priority == "High" ? 0 : i.Priority == "Medium" ? 1 : i.Priority == "Low" ? 2 : 3)
+            .OrderBy(i => i.Priority == null)
+            .ThenBy(i => i.Priority!.SortOrder)
             .ThenBy(i => i.DueDate == null)
             .ThenBy(i => i.DueDate)
             .ThenBy(i => i.CreateDt)
