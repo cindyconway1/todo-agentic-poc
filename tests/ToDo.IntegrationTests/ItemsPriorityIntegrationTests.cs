@@ -12,15 +12,16 @@ using ToDo.DataAccess;
 namespace ToDo.IntegrationTests;
 
 /// <summary>
-/// End-to-end priority tests (BE-09) against the real ASP.NET Core pipeline + a throwaway SQL
-/// Server database (requires SQL Server; runs in CI). Each test class instance gets its own
-/// migrated database.
+/// End-to-end priority-lookup tests (BE-10) against the real ASP.NET Core pipeline + a
+/// throwaway SQL Server database (requires SQL Server; runs in CI). Each test class instance
+/// gets its own migrated database — which also exercises the string→lookup migration itself.
 ///
-/// AC-mapped: priority set on create is echoed in the DTO and persisted; priority changes on
-/// update; the per-list and All-Items views come back pre-sorted by the §7 priority-first order
-/// from *real* SQL (the CASE-ranked ORDER BY translation, not the LINQ-to-objects evaluation the
-/// unit tests exercise); and completing a prioritized item hides it from both views — completion
-/// is one-way and orthogonal to priority.
+/// AC-mapped: GET /api/priorities returns the three seeded rows in sortOrder order; a valid
+/// priorityId set on create/update persists and round-trips both priorityId and priorityName;
+/// a non-existent priorityId is a 422 and is NOT silently written; the real FK constraint
+/// exists on TodoItems.PriorityId; the per-list and All-Items views come back pre-sorted by
+/// the joined Priorities.SortOrder from *real* SQL (not the LINQ-to-objects evaluation the
+/// unit tests exercise); and completing a prioritized item hides it from both views.
 /// </summary>
 public sealed class ItemsPriorityIntegrationTests : IAsyncLifetime
 {
@@ -114,48 +115,94 @@ public sealed class ItemsPriorityIntegrationTests : IAsyncLifetime
     }
 
     private async Task<Guid> CreateItemAsync(
-        UserSession session, Guid listId, string title, string? priority = null, string? dueDate = null)
+        UserSession session, Guid listId, string title, int? priorityId = null, string? dueDate = null)
     {
         var response = await SendAsync(
             session.Client, HttpMethod.Post, $"/api/lists/{listId}/items", session.Token,
-            Json(new { title, priority, dueDate }));
+            Json(new { title, priorityId, dueDate }));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using var doc = await ReadJsonAsync(response);
         return doc.RootElement.GetProperty("id").GetGuid();
     }
 
-    private static string? GetPriority(JsonElement item) =>
-        item.GetProperty("priority").ValueKind == JsonValueKind.Null
+    private static int? GetPriorityId(JsonElement item) =>
+        item.GetProperty("priorityId").ValueKind == JsonValueKind.Null
             ? null
-            : item.GetProperty("priority").GetString();
+            : item.GetProperty("priorityId").GetInt32();
 
-    // AC "Priority 'High' persists" end-to-end: the create response carries it, and so does a
-    // subsequent list read (i.e. it landed in the row, not just the echo).
+    private static string? GetPriorityName(JsonElement item) =>
+        item.GetProperty("priorityName").ValueKind == JsonValueKind.Null
+            ? null
+            : item.GetProperty("priorityName").GetString();
+
+    // AC "GET /api/priorities returns the three seeded rows in order" — from the real migrated
+    // table, ordered by SortOrder, in the { id, name, sortOrder } DTO shape.
     [Fact]
-    public async Task CreateItem_ViaApi_WithPriority_ReturnsInDto()
+    public async Task GetPriorities_ReturnsSeededRowsOrderedBySortOrder()
+    {
+        var owner = await CreateUserSessionAsync("priorities.lookup@example.com");
+
+        var response = await owner.Client.GetAsync("/api/priorities");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var doc = await ReadJsonAsync(response);
+        var rows = doc.RootElement.EnumerateArray().ToList();
+
+        Assert.Equal(3, rows.Count);
+        Assert.Equal(new[] { 1, 2, 3 }, rows.Select(r => r.GetProperty("id").GetInt32()).ToArray());
+        Assert.Equal(new[] { "High", "Medium", "Low" }, rows.Select(r => r.GetProperty("name").GetString()).ToArray());
+        Assert.Equal(new[] { 1, 2, 3 }, rows.Select(r => r.GetProperty("sortOrder").GetInt32()).ToArray());
+    }
+
+    // AC "the FK constraint exists": the DB-level guarantee behind the business-layer check.
+    [Fact]
+    public async Task TodoItems_PriorityId_HasRealForeignKeyToPriorities()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var fkCount = await ctx.Database
+            .SqlQueryRaw<int>(
+                """
+                SELECT COUNT(*) AS [Value]
+                FROM sys.foreign_keys fk
+                WHERE fk.name = 'FK_TodoItems_Priorities_PriorityId'
+                  AND OBJECT_NAME(fk.parent_object_id) = 'TodoItems'
+                  AND OBJECT_NAME(fk.referenced_object_id) = 'Priorities'
+                """)
+            .SingleAsync();
+
+        Assert.Equal(1, fkCount);
+    }
+
+    // AC "a valid priorityId persists and round-trips priorityId + priorityName" end-to-end:
+    // the create response carries both, and so does a subsequent list read (i.e. it landed in
+    // the row, not just the echo). A create without priorityId persists null — not a default.
+    [Fact]
+    public async Task CreateItem_ViaApi_WithPriorityId_ReturnsIdAndNameInDto()
     {
         var owner = await CreateUserSessionAsync("items.priority.create@example.com");
         var listId = await CreateListAsync(owner, "Priority Create Team");
 
         var create = await SendAsync(
             owner.Client, HttpMethod.Post, $"/api/lists/{listId}/items", owner.Token,
-            Json(new { title = "Urgent thing", priority = "High" }));
+            Json(new { title = "Urgent thing", priorityId = 1 }));
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         Guid itemId;
         using (var doc = await ReadJsonAsync(create))
         {
             itemId = doc.RootElement.GetProperty("id").GetGuid();
-            Assert.Equal("High", GetPriority(doc.RootElement));
+            Assert.Equal(1, GetPriorityId(doc.RootElement));
+            Assert.Equal("High", GetPriorityName(doc.RootElement));
         }
 
-        // A create without priority persists null — not a default.
         var noPriority = await SendAsync(
             owner.Client, HttpMethod.Post, $"/api/lists/{listId}/items", owner.Token,
             Json(new { title = "Whenever thing" }));
         Assert.Equal(HttpStatusCode.Created, noPriority.StatusCode);
         using (var doc = await ReadJsonAsync(noPriority))
         {
-            Assert.Null(GetPriority(doc.RootElement));
+            Assert.Null(GetPriorityId(doc.RootElement));
+            Assert.Null(GetPriorityName(doc.RootElement));
         }
 
         var list = await owner.Client.GetAsync($"/api/lists/{listId}/items");
@@ -164,68 +211,114 @@ public sealed class ItemsPriorityIntegrationTests : IAsyncLifetime
         {
             var items = doc.RootElement.EnumerateArray().ToList();
             Assert.Equal(2, items.Count);
-            Assert.Equal("High", GetPriority(items.Single(i => i.GetProperty("id").GetGuid() == itemId)));
-            Assert.Null(GetPriority(items.Single(i => i.GetProperty("id").GetGuid() != itemId)));
+            var prioritized = items.Single(i => i.GetProperty("id").GetGuid() == itemId);
+            Assert.Equal(1, GetPriorityId(prioritized));
+            Assert.Equal("High", GetPriorityName(prioritized));
+            var bare = items.Single(i => i.GetProperty("id").GetGuid() != itemId);
+            Assert.Null(GetPriorityId(bare));
+            Assert.Null(GetPriorityName(bare));
         }
     }
 
-    // AC "Priority updates on existing items": High → Medium via PUT is echoed and persisted;
-    // a follow-up PUT clearing it persists null.
+    // AC "priority updates on existing items": 1 (High) → 2 (Medium) via PUT is echoed with
+    // both id and name and persisted in the FK column; a follow-up PUT clearing it persists null.
     [Fact]
-    public async Task UpdateItem_ViaApi_ChangePriority_ReturnsUpdatedDto()
+    public async Task UpdateItem_ViaApi_ChangePriorityId_ReturnsUpdatedDto()
     {
         var owner = await CreateUserSessionAsync("items.priority.update@example.com");
         var listId = await CreateListAsync(owner, "Priority Update Team");
-        var itemId = await CreateItemAsync(owner, listId, "Shifting priorities", priority: "High");
+        var itemId = await CreateItemAsync(owner, listId, "Shifting priorities", priorityId: 1);
 
         var update = await SendAsync(
             owner.Client, HttpMethod.Put, $"/api/items/{itemId}", owner.Token,
-            Json(new { title = "Shifting priorities", priority = "Medium" }));
+            Json(new { title = "Shifting priorities", priorityId = 2 }));
         Assert.Equal(HttpStatusCode.OK, update.StatusCode);
         using (var doc = await ReadJsonAsync(update))
         {
-            Assert.Equal("Medium", GetPriority(doc.RootElement));
+            Assert.Equal(2, GetPriorityId(doc.RootElement));
+            Assert.Equal("Medium", GetPriorityName(doc.RootElement));
         }
 
         using (var scope = _factory.Services.CreateScope())
         {
             var ctx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var row = await ctx.TodoItems.SingleAsync(i => i.Id == itemId);
-            Assert.Equal("Medium", row.Priority);
+            Assert.Equal(2, row.PriorityId);
         }
 
-        // Clearing the priority persists NULL in the column.
+        // Clearing the priority persists NULL in the FK column.
         var clear = await SendAsync(
             owner.Client, HttpMethod.Put, $"/api/items/{itemId}", owner.Token,
-            Json(new { title = "Shifting priorities", priority = (string?)null }));
+            Json(new { title = "Shifting priorities", priorityId = (int?)null }));
         Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
         using (var doc = await ReadJsonAsync(clear))
         {
-            Assert.Null(GetPriority(doc.RootElement));
+            Assert.Null(GetPriorityId(doc.RootElement));
+            Assert.Null(GetPriorityName(doc.RootElement));
         }
 
         using (var scope = _factory.Services.CreateScope())
         {
             var ctx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var row = await ctx.TodoItems.SingleAsync(i => i.Id == itemId);
-            Assert.Null(row.Priority);
+            Assert.Null(row.PriorityId);
         }
     }
 
-    // AC "Sort by Priority, then DueDate, then CreateDt" from real SQL: five items across all
-    // priority levels created in an order that differs from the expected output, including a
-    // same-priority pair that must order by due date.
+    // AC "a non-existent priorityId is rejected (not silently written)": create returns the
+    // contractual 422 shape and no row lands; update returns 422 and the row keeps its old value.
     [Fact]
-    public async Task ListItems_ViaApi_ReturnsSortedByPriority()
+    public async Task CreateOrUpdateItem_ViaApi_WithUnknownPriorityId_Returns422AndWritesNothing()
+    {
+        var owner = await CreateUserSessionAsync("items.priority.invalid@example.com");
+        var listId = await CreateListAsync(owner, "Priority Invalid Team");
+
+        var create = await SendAsync(
+            owner.Client, HttpMethod.Post, $"/api/lists/{listId}/items", owner.Token,
+            Json(new { title = "Bad priority", priorityId = 99 }));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, create.StatusCode);
+        using (var doc = await ReadJsonAsync(create))
+        {
+            Assert.False(string.IsNullOrEmpty(doc.RootElement.GetProperty("id").GetString()));
+            Assert.Equal("Validation failed.", doc.RootElement.GetProperty("message").GetString());
+            var error = Assert.Single(doc.RootElement.GetProperty("errors").EnumerateArray().ToList());
+            Assert.Equal("PriorityId", error.GetProperty("property").GetString());
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            Assert.Empty(await ctx.TodoItems.Where(i => i.ListId == listId).ToListAsync());
+        }
+
+        var itemId = await CreateItemAsync(owner, listId, "Starts valid", priorityId: 3);
+        var update = await SendAsync(
+            owner.Client, HttpMethod.Put, $"/api/items/{itemId}", owner.Token,
+            Json(new { title = "Starts valid", priorityId = 42 }));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, update.StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var row = await ctx.TodoItems.SingleAsync(i => i.Id == itemId);
+            Assert.Equal(3, row.PriorityId);
+        }
+    }
+
+    // AC "sort by Priorities.SortOrder, then DueDate, then CreateDt" from real SQL (the joined
+    // ORDER BY translation): five items across all priority levels created in an order that
+    // differs from the expected output, including a same-priority pair ordered by due date.
+    [Fact]
+    public async Task ListItems_ViaApi_ReturnsSortedBySortOrder()
     {
         var owner = await CreateUserSessionAsync("items.priority.sort@example.com");
         var listId = await CreateListAsync(owner, "Priority Sort Team");
 
-        await CreateItemAsync(owner, listId, "none", priority: null, dueDate: "2026-07-10");
-        await CreateItemAsync(owner, listId, "low", priority: "Low", dueDate: "2026-07-15");
-        await CreateItemAsync(owner, listId, "high-late", priority: "High", dueDate: "2026-07-25");
-        await CreateItemAsync(owner, listId, "medium", priority: "Medium", dueDate: "2026-07-20");
-        await CreateItemAsync(owner, listId, "high-early", priority: "High", dueDate: "2026-07-20");
+        await CreateItemAsync(owner, listId, "none", priorityId: null, dueDate: "2026-07-10");
+        await CreateItemAsync(owner, listId, "low", priorityId: 3, dueDate: "2026-07-15");
+        await CreateItemAsync(owner, listId, "high-late", priorityId: 1, dueDate: "2026-07-25");
+        await CreateItemAsync(owner, listId, "medium", priorityId: 2, dueDate: "2026-07-20");
+        await CreateItemAsync(owner, listId, "high-early", priorityId: 1, dueDate: "2026-07-20");
 
         var response = await owner.Client.GetAsync($"/api/lists/{listId}/items");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -238,21 +331,21 @@ public sealed class ItemsPriorityIntegrationTests : IAsyncLifetime
     }
 
     // AC "AllItemsList applies the priority-first sort" from real SQL, across multiple lists:
-    // the flat view interleaves both lists' items in one §7-ordered sequence, with priority in
-    // each row's DTO.
+    // the flat view interleaves both lists' items in one §7-ordered sequence, with priorityId
+    // and priorityName in each row's DTO.
     [Fact]
-    public async Task AllItems_ViaApi_ReturnsSortedByPriority()
+    public async Task AllItems_ViaApi_ReturnsSortedBySortOrder()
     {
         var owner = await CreateUserSessionAsync("items.priority.all@example.com");
         var listA = await CreateListAsync(owner, "All Sort Team A");
         var listB = await CreateListAsync(owner, "All Sort Team B");
 
-        await CreateItemAsync(owner, listA, "none-a", priority: null, dueDate: "2026-07-10");
-        await CreateItemAsync(owner, listB, "high-nodate-b", priority: "High");
-        await CreateItemAsync(owner, listA, "medium-a", priority: "Medium", dueDate: "2026-07-20");
-        await CreateItemAsync(owner, listB, "high-b", priority: "High", dueDate: "2026-07-25");
-        await CreateItemAsync(owner, listA, "high-a", priority: "High", dueDate: "2026-07-20");
-        await CreateItemAsync(owner, listB, "low-b", priority: "Low", dueDate: "2026-07-15");
+        await CreateItemAsync(owner, listA, "none-a", priorityId: null, dueDate: "2026-07-10");
+        await CreateItemAsync(owner, listB, "high-nodate-b", priorityId: 1);
+        await CreateItemAsync(owner, listA, "medium-a", priorityId: 2, dueDate: "2026-07-20");
+        await CreateItemAsync(owner, listB, "high-b", priorityId: 1, dueDate: "2026-07-25");
+        await CreateItemAsync(owner, listA, "high-a", priorityId: 1, dueDate: "2026-07-20");
+        await CreateItemAsync(owner, listB, "low-b", priorityId: 3, dueDate: "2026-07-15");
 
         var response = await owner.Client.GetAsync("/api/items/all");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -263,19 +356,22 @@ public sealed class ItemsPriorityIntegrationTests : IAsyncLifetime
             new[] { "high-a", "high-b", "high-nodate-b", "medium-a", "low-b", "none-a" },
             items.Select(i => i.GetProperty("title").GetString()).ToArray());
         Assert.Equal(
+            new int?[] { 1, 1, 1, 2, 3, null },
+            items.Select(GetPriorityId).ToArray());
+        Assert.Equal(
             new string?[] { "High", "High", "High", "Medium", "Low", null },
-            items.Select(GetPriority).ToArray());
+            items.Select(GetPriorityName).ToArray());
     }
 
     // AC "completion is one-way, priority is orthogonal": a High item completes exactly like
     // any other and disappears from both the per-list and All-Items views.
     [Fact]
-    public async Task CompleteItem_WithPriority_MarksComplete()
+    public async Task CompleteItem_WithPriorityId_MarksComplete()
     {
         var owner = await CreateUserSessionAsync("items.priority.complete@example.com");
         var listId = await CreateListAsync(owner, "Priority Complete Team");
-        var itemId = await CreateItemAsync(owner, listId, "Done despite High", priority: "High");
-        var survivorId = await CreateItemAsync(owner, listId, "Still open", priority: "Low");
+        var itemId = await CreateItemAsync(owner, listId, "Done despite High", priorityId: 1);
+        var survivorId = await CreateItemAsync(owner, listId, "Still open", priorityId: 3);
 
         var complete = await SendAsync(
             owner.Client, new HttpMethod("PATCH"), $"/api/items/{itemId}/complete", owner.Token);
@@ -299,13 +395,13 @@ public sealed class ItemsPriorityIntegrationTests : IAsyncLifetime
             Assert.Equal(survivorId, only.GetProperty("id").GetGuid());
         }
 
-        // The row completed with its priority intact — priority survives completion in the DB.
+        // The row completed with its priority intact — the FK value survives completion.
         using var scope = _factory.Services.CreateScope();
         var ctx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var row = await ctx.TodoItems.SingleAsync(i => i.Id == itemId);
         Assert.True(row.IsCompleted);
         Assert.NotNull(row.CompletedAt);
-        Assert.Equal("High", row.Priority);
+        Assert.Equal(1, row.PriorityId);
     }
 }
 

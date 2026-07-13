@@ -19,6 +19,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<VolunteerTeam> VolunteerTeams => Set<VolunteerTeam>();
     public DbSet<TodoList> TodoLists => Set<TodoList>();
     public DbSet<TodoItem> TodoItems => Set<TodoItem>();
+    public DbSet<Priority> Priorities => Set<Priority>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -133,6 +134,23 @@ public class ApplicationDbContext : DbContext
             // TodoList→TodoItem delete cascade: the FK lives on the TodoItem table (below).
         });
 
+        modelBuilder.Entity<Priority>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            // Fixed ids (not identity) so the seed rows are stable across environments and
+            // the backfill/frontend can rely on 1=High, 2=Medium, 3=Low.
+            entity.Property(p => p.Id).ValueGeneratedNever();
+            entity.Property(p => p.Name)
+                .IsRequired()
+                .HasMaxLength(50);
+            entity.Property(p => p.SortOrder)
+                .IsRequired();
+            entity.HasData(
+                new Priority { Id = 1, Name = "High", SortOrder = 1 },
+                new Priority { Id = 2, Name = "Medium", SortOrder = 2 },
+                new Priority { Id = 3, Name = "Low", SortOrder = 3 });
+        });
+
         modelBuilder.Entity<TodoItem>(entity =>
         {
             entity.HasKey(i => i.Id);
@@ -142,8 +160,13 @@ public class ApplicationDbContext : DbContext
             entity.Property(i => i.Description)
                 .HasMaxLength(200);
             // Nullable by design: no priority is a valid state and sorts last (§7).
-            entity.Property(i => i.Priority)
-                .HasMaxLength(10);
+            // Restrict (not cascade/set-null): the three seeded priorities are never deleted,
+            // and the FK is the DB-level guarantee that only valid ids are ever stored.
+            entity.HasOne(i => i.Priority)
+                .WithMany()
+                .HasForeignKey(i => i.PriorityId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
             entity.Property(i => i.IsCompleted)
                 .HasDefaultValue(false);
             // Deleting a list cascades its items (spec §3 delete behavior).
@@ -162,13 +185,13 @@ public class ApplicationDbContext : DbContext
             // Both composite indexes lead with the FK column, so they double as the FK indexes.
             // (ListId, IsCompleted, DueDate) serves the per-list incomplete-items query;
             // (OwnerUserId, IsCompleted, DueDate) serves the All-Items query (BE-08).
-            // Priority is an INCLUDE column, not a key: the §7 priority-first sort is a CASE
-            // expression over Priority, which SQL Server cannot seek/order on via an index key,
-            // but including the column keeps the filtered read covered for the sort computation.
+            // PriorityId is an INCLUDE column, not a key: the §7 priority-first sort orders by
+            // the joined Priorities.SortOrder, not this column, but including it keeps the
+            // filtered read covered for the join without a key-lookup per row.
             entity.HasIndex(i => new { i.ListId, i.IsCompleted, i.DueDate })
-                .IncludeProperties(i => i.Priority);
+                .IncludeProperties(i => i.PriorityId);
             entity.HasIndex(i => new { i.OwnerUserId, i.IsCompleted, i.DueDate })
-                .IncludeProperties(i => i.Priority);
+                .IncludeProperties(i => i.PriorityId);
         });
     }
 

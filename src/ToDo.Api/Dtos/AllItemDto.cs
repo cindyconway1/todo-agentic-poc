@@ -14,8 +14,10 @@ public sealed class AllItemDto
     public string ScopeName { get; set; } = "";
     public string Title { get; set; } = "";
     public string? Description { get; set; }
-    // "High" | "Medium" | "Low" (case-sensitive); null means no priority and sorts last.
-    public string? Priority { get; set; }
+    // FK into the Priorities lookup (1 High, 2 Medium, 3 Low); null means no priority and
+    // sorts last. PriorityName is the lookup row's name, resolved server-side.
+    public int? PriorityId { get; set; }
+    public string? PriorityName { get; set; }
     // Date-only (serializes as "yyyy-MM-dd"); null means no due date and sorts last.
     public DateOnly? DueDate { get; set; }
 }

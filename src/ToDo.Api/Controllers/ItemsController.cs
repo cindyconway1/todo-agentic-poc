@@ -82,7 +82,7 @@ public class ItemsController : ControllerBase
         var item = await _itemEditPortal.CreateAsync(listId);
         item.Title = request.Title ?? "";
         item.Description = request.Description;
-        item.Priority = request.Priority;
+        item.PriorityId = request.PriorityId;
         item.DueDate = request.DueDate;
 
         if (!item.IsValid)
@@ -98,6 +98,12 @@ public class ItemsController : ControllerBase
         {
             // Unowned and nonexistent lists are both 404 so list existence never leaks (AC 11).
             return NotFound(new MessageDto { Message = "List not found." });
+        }
+        catch (Exception ex) when (UnwrapInvalidPriority(ex) is InvalidPriorityException invalidPriority)
+        {
+            // Business-layer existence check (defense-in-depth ahead of the FK): an id not in
+            // the Priorities lookup is a contractual 422, not a raw SQL FK error.
+            return UnprocessableEntity(BuildInvalidPriorityProblem(invalidPriority));
         }
 
         // No GET-single-item endpoint exists, so Location points at the list's items.
@@ -125,7 +131,7 @@ public class ItemsController : ControllerBase
 
         item.Title = request.Title ?? "";
         item.Description = request.Description;
-        item.Priority = request.Priority;
+        item.PriorityId = request.PriorityId;
         item.DueDate = request.DueDate;
 
         if (!item.IsValid)
@@ -133,7 +139,16 @@ public class ItemsController : ControllerBase
             return UnprocessableEntity(BuildValidationProblem(item.BrokenRulesCollection));
         }
 
-        item = await item.SaveAsync();
+        try
+        {
+            item = await item.SaveAsync();
+        }
+        catch (Exception ex) when (UnwrapInvalidPriority(ex) is InvalidPriorityException invalidPriority)
+        {
+            // Business-layer existence check (defense-in-depth ahead of the FK): an id not in
+            // the Priorities lookup is a contractual 422, not a raw SQL FK error.
+            return UnprocessableEntity(BuildInvalidPriorityProblem(invalidPriority));
+        }
 
         return Ok(ToDto(item));
     }
@@ -184,7 +199,8 @@ public class ItemsController : ControllerBase
         ListId = item.ListId,
         Title = item.Title,
         Description = item.Description,
-        Priority = item.Priority,
+        PriorityId = item.PriorityId,
+        PriorityName = item.PriorityName,
         DueDate = item.DueDate,
         IsCompleted = item.IsCompleted,
         CompletedAt = item.CompletedAt,
@@ -196,7 +212,8 @@ public class ItemsController : ControllerBase
         ListId = item.ListId,
         Title = item.Title,
         Description = item.Description,
-        Priority = item.Priority,
+        PriorityId = item.PriorityId,
+        PriorityName = item.PriorityName,
         DueDate = item.DueDate,
         IsCompleted = item.IsCompleted,
         CompletedAt = item.CompletedAt,
@@ -211,7 +228,8 @@ public class ItemsController : ControllerBase
         ScopeName = item.ScopeName,
         Title = item.Title,
         Description = item.Description,
-        Priority = item.Priority,
+        PriorityId = item.PriorityId,
+        PriorityName = item.PriorityName,
         DueDate = item.DueDate,
     };
 
@@ -244,5 +262,25 @@ public class ItemsController : ControllerBase
         TodoItemListNotFoundException notFound => notFound,
         DataPortalException { BusinessException: TodoItemListNotFoundException notFound } => notFound,
         _ => null,
+    };
+
+    private static InvalidPriorityException? UnwrapInvalidPriority(Exception ex) => ex switch
+    {
+        InvalidPriorityException invalidPriority => invalidPriority,
+        DataPortalException { BusinessException: InvalidPriorityException invalidPriority } => invalidPriority,
+        _ => null,
+    };
+
+    // The same { id, message, errors[], warnings[] } shape as rule-driven 422s, with the
+    // broken "rule" being the PriorityId lookup-existence check that runs at save time.
+    private static ValidationProblemDto BuildInvalidPriorityProblem(InvalidPriorityException ex) => new()
+    {
+        Id = Guid.NewGuid().ToString(),
+        Message = "Validation failed.",
+        Errors =
+        [
+            new ValidationErrorDto { Property = nameof(TodoItemEdit.PriorityId), Message = ex.Message },
+        ],
+        Warnings = [],
     };
 }

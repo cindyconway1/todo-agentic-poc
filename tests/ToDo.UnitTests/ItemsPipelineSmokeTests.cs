@@ -144,6 +144,42 @@ public class ItemsPipelineSmokeTests : IClassFixture<WebApplicationFactory<Progr
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // BE-10, DB-free: the request DTOs bind priorityId as a nullable int. A JSON body carrying
+    // priorityId reaches TodoItemEdit's rules and 422s on the null title — NOT a 400, which
+    // would mean the field failed model binding (TodoItemEdit's [Create] never touches SQL,
+    // and the priority existence check only runs at save, which this request never reaches).
+    [Fact]
+    public async Task CreateItem_WithPriorityId_BindsAndReaches422_Not400()
+    {
+        var (client, token) = await CreateTokenedClientAsync();
+
+        var response = await client.SendAsync(TokenedRequest(
+            HttpMethod.Post,
+            $"/api/lists/{Guid.NewGuid()}/items",
+            token,
+            "{\"title\":null,\"priorityId\":2}"));
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+    }
+
+    // BE-10, DB-free: priorityId is an int on the wire now — the legacy string contract value
+    // fails JSON binding with a clean 400 on both create and update, before any data access.
+    [Theory]
+    [InlineData("POST", "/api/lists/{0}/items")]
+    [InlineData("PUT", "/api/items/{0}")]
+    public async Task ItemMutation_WithNonNumericPriorityId_Returns400FromModelBinding(string method, string urlTemplate)
+    {
+        var (client, token) = await CreateTokenedClientAsync();
+
+        var response = await client.SendAsync(TokenedRequest(
+            new HttpMethod(method),
+            string.Format(urlTemplate, Guid.NewGuid()),
+            token,
+            "{\"title\":\"Valid\",\"priorityId\":\"High\"}"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     // Regression anchor (mirrors the Teams one): with a non-nullable Title on the request DTO,
     // [ApiController] implicit-required validation would 400 before TodoItemEdit's Required rule
     // ran, so the contractual 422 path would never be reached. DB-free because TodoItemEdit's

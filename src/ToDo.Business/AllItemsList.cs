@@ -25,14 +25,16 @@ public class AllItemsList : ReadOnlyListBase<AllItemsList, AllItemInfo>
 
         // Query 1: items joined to their list's scope, filtered and sorted in SQL — the
         // (OwnerUserId, IsCompleted, DueDate) index from BE-07 serves this shape.
+        // §7 priority-first sort: the Priority nav left-joins the lookup, so ordering by
+        // (Priority == null, Priority.SortOrder) ranks High → Medium → Low → null; the name is
+        // projected explicitly because a projection does no nav fix-up.
         var rows = await (
             from item in dbContext.TodoItems.AsNoTracking()
             join list in dbContext.TodoLists.AsNoTracking() on item.ListId equals list.Id
             where item.OwnerUserId == userId && !item.IsCompleted
-            // §7 priority-first sort: rank High=0, Medium=1, Low=2, null/other=3.
-            orderby item.Priority == "High" ? 0 : item.Priority == "Medium" ? 1 : item.Priority == "Low" ? 2 : 3,
+            orderby item.Priority == null, item.Priority!.SortOrder,
                 item.DueDate == null, item.DueDate, item.CreateDt
-            select new { Item = item, list.ScopeTypeId, list.ScopeEntityId })
+            select new { Item = item, PriorityName = (string?)item.Priority!.Name, list.ScopeTypeId, list.ScopeEntityId })
             .ToListAsync();
 
         // Queries 2–4: the owner's entity-name maps, resolved once each.
@@ -69,7 +71,7 @@ public class AllItemsList : ReadOnlyListBase<AllItemsList, AllItemInfo>
                     continue;
                 }
 
-                Add(itemInfoPortal.FetchChild(row.Item, scopeType.Name, entityName));
+                Add(itemInfoPortal.FetchChild(row.Item, row.PriorityName, scopeType.Name, entityName));
             }
         }
     }

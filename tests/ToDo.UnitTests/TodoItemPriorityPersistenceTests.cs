@@ -7,13 +7,14 @@ using ToDo.DataAccess;
 
 namespace ToDo.UnitTests;
 
-// AC-mapped (BE-09): Priority round-trips the *real* local data portal (the MobileList lesson —
+// AC-mapped (BE-10): PriorityId round-trips the *real* local data portal (the MobileList lesson —
 // persistence-affecting behavior must survive the MobileFormatter clone, so every test SaveAsyncs
-// and asserts both the persisted row and a re-fetched object). Covers: each of 'High', 'Medium',
-// 'Low' persists; null persists as null (no silent default); priority changes and clears on
-// update; and priority survives an update that touches other fields. Uses the EF Core in-memory
-// provider — acceptable because these tests target data-portal logic, not relational semantics
-// (the SQL column and sort live in ItemsPriorityIntegrationTests).
+// and asserts both the persisted row and a re-fetched object). Covers: each seeded id (1 High,
+// 2 Medium, 3 Low) persists and resolves its PriorityName from the lookup; null persists as null
+// (no silent default); priority changes and clears on update; and priority survives an update
+// that touches other fields. Uses the EF Core in-memory provider (EnsureCreated applies the
+// HasData seed) — acceptable because these tests target data-portal logic, not relational
+// semantics (the FK and SQL sort live in ItemsPriorityIntegrationTests).
 public class TodoItemPriorityPersistenceTests
 {
     private static readonly Guid CurrentUserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -31,6 +32,8 @@ public class TodoItemPriorityPersistenceTests
         var provider = services.BuildServiceProvider();
 
         var ctx = provider.GetRequiredService<ApplicationDbContext>();
+        // EnsureCreated applies the Priorities HasData seed to the in-memory store.
+        await ctx.Database.EnsureCreatedAsync();
         ctx.TodoLists.Add(new TodoList
         {
             Id = OwnedListId,
@@ -43,45 +46,48 @@ public class TodoItemPriorityPersistenceTests
         return provider;
     }
 
-    // Create with the given priority, save, re-fetch through the portal, and assert the value
-    // persisted in the row and round-tripped back out (surviving the MobileFormatter clone).
-    private static async Task AssertCreatePersistsPriorityAsync(string? priority)
+    // Create with the given priority id, save, re-fetch through the portal, and assert the value
+    // persisted in the row and round-tripped back out (surviving the MobileFormatter clone),
+    // with PriorityName resolved from the lookup.
+    private static async Task AssertCreatePersistsPriorityAsync(int? priorityId, string? expectedName)
     {
         var provider = await BuildProviderAsync();
         var portal = provider.GetRequiredService<IDataPortal<TodoItemEdit>>();
 
         var item = await portal.CreateAsync(OwnedListId);
         item.Title = "Prioritized";
-        item.Priority = priority;
-        Assert.True(item.IsValid); // priority is unvalidated — every value here is valid
+        item.PriorityId = priorityId;
+        Assert.True(item.IsValid); // null and every seeded id are valid states
         item = await item.SaveAsync();
-        Assert.Equal(priority, item.Priority); // echoed on the saved clone
+        Assert.Equal(priorityId, item.PriorityId); // echoed on the saved clone
+        Assert.Equal(expectedName, item.PriorityName); // name resolved from the lookup on save
 
         var ctx = provider.GetRequiredService<ApplicationDbContext>();
         var entity = await ctx.TodoItems.SingleAsync(i => i.Id == item.Id);
-        Assert.Equal(priority, entity.Priority); // persisted, not defaulted
+        Assert.Equal(priorityId, entity.PriorityId); // persisted, not defaulted
 
         var fetched = await portal.FetchAsync(item.Id);
-        Assert.Equal(priority, fetched.Priority); // fetch round-trips it
+        Assert.Equal(priorityId, fetched.PriorityId); // fetch round-trips it
+        Assert.Equal(expectedName, fetched.PriorityName); // fetch joins the lookup for the name
     }
 
     [Fact]
-    public async Task CreateItem_WithHighPriority_StoresAndReturns() =>
-        await AssertCreatePersistsPriorityAsync("High");
+    public async Task CreateItem_WithHighPriorityId_StoresAndReturnsName() =>
+        await AssertCreatePersistsPriorityAsync(1, "High");
 
     [Fact]
-    public async Task CreateItem_WithMediumPriority_StoresAndReturns() =>
-        await AssertCreatePersistsPriorityAsync("Medium");
+    public async Task CreateItem_WithMediumPriorityId_StoresAndReturnsName() =>
+        await AssertCreatePersistsPriorityAsync(2, "Medium");
 
     [Fact]
-    public async Task CreateItem_WithLowPriority_StoresAndReturns() =>
-        await AssertCreatePersistsPriorityAsync("Low");
+    public async Task CreateItem_WithLowPriorityId_StoresAndReturnsName() =>
+        await AssertCreatePersistsPriorityAsync(3, "Low");
 
-    // Null is a valid state of its own: it must persist as NULL, not be coerced to a default
-    // like 'Medium' (and not to "" — the getter normalizes CSLA's empty-string coercion back).
+    // Null is a valid state of its own: it must persist as NULL, not be coerced to a default,
+    // and PriorityName must be null too.
     [Fact]
-    public async Task CreateItem_WithNullPriority_Allowed() =>
-        await AssertCreatePersistsPriorityAsync(null);
+    public async Task CreateItem_WithNullPriorityId_Allowed() =>
+        await AssertCreatePersistsPriorityAsync(null, null);
 
     [Fact]
     public async Task UpdateItem_ChangePriorityFromHighToLow_Persists()
@@ -91,62 +97,66 @@ public class TodoItemPriorityPersistenceTests
 
         var created = await portal.CreateAsync(OwnedListId);
         created.Title = "Reprioritized";
-        created.Priority = "High";
+        created.PriorityId = 1;
         created = await created.SaveAsync();
 
         var fetched = await portal.FetchAsync(created.Id);
-        Assert.Equal("High", fetched.Priority);
-        fetched.Priority = "Low";
+        Assert.Equal(1, fetched.PriorityId);
+        Assert.Equal("High", fetched.PriorityName);
+        fetched.PriorityId = 3;
         fetched = await fetched.SaveAsync();
-        Assert.Equal("Low", fetched.Priority);
+        Assert.Equal(3, fetched.PriorityId);
+        Assert.Equal("Low", fetched.PriorityName);
 
         var ctx = provider.GetRequiredService<ApplicationDbContext>();
         var entity = await ctx.TodoItems.SingleAsync(i => i.Id == created.Id);
-        Assert.Equal("Low", entity.Priority);
+        Assert.Equal(3, entity.PriorityId);
     }
 
     [Fact]
-    public async Task UpdateItem_ClearPriority_SetsNull()
+    public async Task UpdateItem_ClearPriorityId_SetsNull()
     {
         var provider = await BuildProviderAsync();
         var portal = provider.GetRequiredService<IDataPortal<TodoItemEdit>>();
 
         var created = await portal.CreateAsync(OwnedListId);
         created.Title = "Deprioritized";
-        created.Priority = "High";
+        created.PriorityId = 1;
         created = await created.SaveAsync();
 
         var fetched = await portal.FetchAsync(created.Id);
-        fetched.Priority = null;
+        fetched.PriorityId = null;
         fetched = await fetched.SaveAsync();
-        Assert.Null(fetched.Priority);
+        Assert.Null(fetched.PriorityId);
+        Assert.Null(fetched.PriorityName);
 
         var ctx = provider.GetRequiredService<ApplicationDbContext>();
         var entity = await ctx.TodoItems.SingleAsync(i => i.Id == created.Id);
-        Assert.Null(entity.Priority);
+        Assert.Null(entity.PriorityId);
     }
 
     // A title-only edit must not disturb the stored priority — the update writes the fetched
-    // (unchanged) value back, so 'High' stays 'High'.
+    // (unchanged) value back, so High stays High.
     [Fact]
-    public async Task UpdateItem_PreservePriorityOnOtherChanges()
+    public async Task UpdateItem_PreservePriorityIdOnOtherChanges()
     {
         var provider = await BuildProviderAsync();
         var portal = provider.GetRequiredService<IDataPortal<TodoItemEdit>>();
 
         var created = await portal.CreateAsync(OwnedListId);
         created.Title = "Before";
-        created.Priority = "High";
+        created.PriorityId = 1;
         created = await created.SaveAsync();
 
         var fetched = await portal.FetchAsync(created.Id);
         fetched.Title = "After";
         fetched = await fetched.SaveAsync();
-        Assert.Equal("High", fetched.Priority);
+        Assert.Equal(1, fetched.PriorityId);
+        Assert.Equal("High", fetched.PriorityName);
 
         var ctx = provider.GetRequiredService<ApplicationDbContext>();
         var entity = await ctx.TodoItems.SingleAsync(i => i.Id == created.Id);
         Assert.Equal("After", entity.Title);
-        Assert.Equal("High", entity.Priority);
+        Assert.Equal(1, entity.PriorityId);
     }
 }
